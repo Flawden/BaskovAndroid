@@ -129,6 +129,49 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/playback/stream:
+    get:
+      operationId: streamMobilePlayback
+      description: >-
+        Authenticated foreground Ogg/Opus stream for one provider-neutral logical track.
+        The backend owns provider selection and source loading; clients send artist/title only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GuildId'
+        - name: artist
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 180
+        - name: title
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 180
+      responses:
+        '200':
+          description: Streaming Ogg container with Opus audio packets
+          headers:
+            X-Baskov-Playback-Duration-Millis:
+              schema:
+                type: integer
+                format: int64
+          content:
+            audio/ogg:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/PlaybackUnavailable'
   /api/v1/auth/device/pair:
     post:
       operationId: pairDevice
@@ -267,6 +310,12 @@ components:
             $ref: '#/components/schemas/Error'
     Forbidden:
       description: Linked Discord identity cannot access requested guild
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    PlaybackUnavailable:
+      description: No healthy provider/track source can prepare a mobile foreground stream
       content:
         application/json:
           schema:

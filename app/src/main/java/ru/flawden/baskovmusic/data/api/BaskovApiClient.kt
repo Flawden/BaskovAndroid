@@ -88,6 +88,12 @@ class BaskovApiClient(
             accessToken = accessToken,
         ).toMixDetail()
 
+    fun playbackStreamUrl(guildId: String, artist: String, title: String): String =
+        baseUrl + "api/v1/playback/stream" +
+            "?guildId=${encodeQuery(guildId)}" +
+            "&artist=${encodeQuery(artist)}" +
+            "&title=${encodeQuery(title)}"
+
     suspend fun logout(accessToken: String) {
         requestJson("POST", "api/v1/auth/logout", accessToken = accessToken)
     }

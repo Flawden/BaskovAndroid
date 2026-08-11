@@ -11,6 +11,9 @@ import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.LibrarySnapshot
 import ru.flawden.baskovmusic.model.MixDetail
 import ru.flawden.baskovmusic.model.MixesSnapshot
+import ru.flawden.baskovmusic.model.PlaybackQueueItem
+import ru.flawden.baskovmusic.model.PlaybackQueueSpec
+import ru.flawden.baskovmusic.model.TrackPreview
 
 class BaskovRepository(
     private val sessionStore: SessionStore,
@@ -39,6 +42,27 @@ class BaskovRepository(
 
     suspend fun mixDetail(guildId: String, stationSlug: String): MixDetail =
         authenticated { client, token -> client.mixDetail(token, guildId, stationSlug) }
+
+    suspend fun playbackQueue(guildId: String, tracks: List<TrackPreview>): PlaybackQueueSpec {
+        val playable = tracks.filter { !it.title.isNullOrBlank() }
+        require(playable.isNotEmpty()) { "Playback queue is empty" }
+        return authenticated { client, token ->
+            client.me(token) // validates/refreshes the device access token before Media3 opens stream URLs
+            PlaybackQueueSpec(
+                bearerToken = token,
+                items = playable.map { track ->
+                    PlaybackQueueItem(
+                        track = track,
+                        streamUrl = client.playbackStreamUrl(
+                            guildId = guildId,
+                            artist = track.artist.orEmpty().ifBlank { "Неизвестно" },
+                            title = requireNotNull(track.title),
+                        ),
+                    )
+                },
+            )
+        }
+    }
 
     suspend fun selectGuild(guildId: String) = sessionStore.saveSelectedGuildId(guildId)
 

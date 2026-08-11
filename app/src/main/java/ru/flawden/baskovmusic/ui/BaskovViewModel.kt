@@ -18,13 +18,17 @@ import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
 import ru.flawden.baskovmusic.model.MixCard
 import ru.flawden.baskovmusic.model.TrackPreview
+import ru.flawden.baskovmusic.playback.LocalPlaybackController
+import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
 
 class BaskovViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = BaskovRepository(SessionStore(application))
     private val mutableState = MutableStateFlow(AppUiState())
     private val backStack = ArrayDeque<AppScreen>()
+    private val playback = LocalPlaybackController(application)
 
     val state: StateFlow<AppUiState> = mutableState.asStateFlow()
+    val playbackState: StateFlow<LocalPlaybackUiState> = playback.state
 
     init {
         bootstrap()
@@ -38,6 +42,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun chooseGuild(guild: GuildSummary) = launchBusy {
+        playback.stop()
         repository.selectGuild(guild.guildId)
         val account = repository.me()
         val snapshot = repository.home(guild.guildId)
@@ -102,12 +107,26 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         navigate(AppScreen.Track(context.account, context.guild, track))
     }
 
+    fun playTrack(track: TrackPreview) = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        val queue = playbackQueueFor(track)
+        val startIndex = queue.indexOfFirst { sameTrack(it, track) }.coerceAtLeast(0)
+        playback.play(repository.playbackQueue(context.guild.guildId, queue), startIndex)
+    }
+
+    fun togglePlayback() = playback.togglePlayPause()
+    fun nextTrack() = playback.next()
+    fun previousTrack() = playback.previous()
+    fun stopPlayback() = playback.stop()
+    fun clearPlaybackError() = playback.clearError()
+
     fun goBack() {
         if (mutableState.value.busy || backStack.isEmpty()) return
         setScreen(backStack.removeLast())
     }
 
     fun changeGuild() = launchBusy {
+        playback.stop()
         val account = repository.me()
         val guilds = repository.guilds()
         backStack.clear()
@@ -115,6 +134,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun logout() = launchBusy {
+        playback.stop()
         repository.logout()
         backStack.clear()
         setScreen(AppScreen.Pairing(repository.savedBaseUrl().orEmpty()))
@@ -170,6 +190,50 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         -> null
     }
 
+    private fun playbackQueueFor(track: TrackPreview): List<TrackPreview> {
+        val source = when (val screen = mutableState.value.screen) {
+            is AppScreen.Home -> screen.snapshot.recent
+            is AppScreen.Library -> listOf(
+                screen.snapshot.favoriteTracks,
+                screen.snapshot.historyTracks,
+                screen.snapshot.recent,
+            ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
+            is AppScreen.Mix -> screen.detail.seedPreview
+            is AppScreen.Track -> backStack.peekLast()?.let { queueFromScreen(it, track) }.orEmpty()
+            AppScreen.Loading,
+            is AppScreen.Pairing,
+            is AppScreen.GuildPicker,
+            is AppScreen.Mixes,
+            -> emptyList()
+        }
+        return (source.ifEmpty { listOf(track) } + track)
+            .filter { !it.title.isNullOrBlank() }
+            .distinctBy { it.stableKey ?: "${it.artist.orEmpty()}::${it.title.orEmpty()}" }
+    }
+
+    private fun queueFromScreen(screen: AppScreen, track: TrackPreview): List<TrackPreview> = when (screen) {
+        is AppScreen.Home -> screen.snapshot.recent
+        is AppScreen.Library -> listOf(
+            screen.snapshot.favoriteTracks,
+            screen.snapshot.historyTracks,
+            screen.snapshot.recent,
+        ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
+        is AppScreen.Mix -> screen.detail.seedPreview
+        is AppScreen.Track -> listOf(screen.track)
+        AppScreen.Loading,
+        is AppScreen.Pairing,
+        is AppScreen.GuildPicker,
+        is AppScreen.Mixes,
+        -> emptyList()
+    }
+
+    private fun sameTrack(left: TrackPreview, right: TrackPreview): Boolean {
+        val leftKey = left.stableKey
+        val rightKey = right.stableKey
+        if (!leftKey.isNullOrBlank() && !rightKey.isNullOrBlank()) return leftKey == rightKey
+        return left.title == right.title && left.artist == right.artist
+    }
+
     private fun navigate(screen: AppScreen) {
         val current = mutableState.value.screen
         if (current != screen) backStack.addLast(current)
@@ -189,6 +253,11 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         runCatching { block() }
             .onFailure { mutableState.value = mutableState.value.copy(error = friendlyMessage(it)) }
         mutableState.value = mutableState.value.copy(busy = false)
+    }
+
+    override fun onCleared() {
+        playback.close()
+        super.onCleared()
     }
 
     private fun defaultDeviceName(): String = listOf(Build.MANUFACTURER, Build.MODEL)

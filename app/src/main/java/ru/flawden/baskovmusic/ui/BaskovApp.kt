@@ -23,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,17 +39,25 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.MixCard
 import ru.flawden.baskovmusic.model.TrackPreview
+import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BaskovApp(viewModel: BaskovViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(state.error) {
         state.error?.let {
             snackbar.showSnackbar(it)
             viewModel.clearError()
+        }
+    }
+    LaunchedEffect(playback.error) {
+        playback.error?.let {
+            snackbar.showSnackbar("Playback: $it")
+            viewModel.clearPlaybackError()
         }
     }
 
@@ -71,6 +80,17 @@ fun BaskovApp(viewModel: BaskovViewModel) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = { TopAppBar(title = { Text("Baskov Music") }) },
+            bottomBar = {
+                if (playback.current != null) {
+                    MiniPlayer(
+                        playback = playback,
+                        onToggle = viewModel::togglePlayback,
+                        onPrevious = viewModel::previousTrack,
+                        onNext = viewModel::nextTrack,
+                        onStop = viewModel::stopPlayback,
+                    )
+                }
+            },
         ) { padding ->
             Box(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -94,6 +114,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         onOpenMixes = viewModel::openMixes,
                         onOpenMix = viewModel::openMix,
                         onOpenTrack = viewModel::openTrack,
+                        onPlayTrack = viewModel::playTrack,
                         onChangeGuild = viewModel::changeGuild,
                         onLogout = viewModel::logout,
                     )
@@ -102,6 +123,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         busy = state.busy,
                         onRefresh = viewModel::refreshLibrary,
                         onOpenTrack = viewModel::openTrack,
+                        onPlayTrack = viewModel::playTrack,
                         onBack = viewModel::goBack,
                     )
                     is AppScreen.Mixes -> MixesScreen(
@@ -116,11 +138,13 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         busy = state.busy,
                         onRefresh = viewModel::refreshMix,
                         onOpenTrack = viewModel::openTrack,
+                        onPlayTrack = viewModel::playTrack,
                         onBack = viewModel::goBack,
                     )
                     is AppScreen.Track -> TrackDetailScreen(
                         screen = screen,
                         busy = state.busy,
+                        onPlay = viewModel::playTrack,
                         onBack = viewModel::goBack,
                     )
                 }
@@ -212,6 +236,7 @@ private fun HomeScreen(
     onOpenMixes: () -> Unit,
     onOpenMix: (MixCard) -> Unit,
     onOpenTrack: (TrackPreview) -> Unit,
+    onPlayTrack: (TrackPreview) -> Unit,
     onChangeGuild: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -252,7 +277,7 @@ private fun HomeScreen(
         }
         item { SectionTitle("Недавнее") }
         if (screen.snapshot.recent.isEmpty()) item { EmptyCard("История прослушиваний пока пуста.") }
-        items(screen.snapshot.recent) { track -> TrackCardView(track, busy, onOpenTrack) }
+        items(screen.snapshot.recent) { track -> TrackCardView(track, busy, onOpenTrack, onPlayTrack) }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Обновить") }
@@ -271,6 +296,7 @@ private fun LibraryScreen(
     busy: Boolean,
     onRefresh: () -> Unit,
     onOpenTrack: (TrackPreview) -> Unit,
+    onPlayTrack: (TrackPreview) -> Unit,
     onBack: () -> Unit,
 ) {
     LazyColumn(
@@ -288,13 +314,13 @@ private fun LibraryScreen(
         }
         item { SectionTitle("Избранное") }
         if (screen.snapshot.favoriteTracks.isEmpty()) item { EmptyCard("В избранном пока ничего нет.") }
-        items(screen.snapshot.favoriteTracks) { track -> TrackCardView(track, busy, onOpenTrack) }
+        items(screen.snapshot.favoriteTracks) { track -> TrackCardView(track, busy, onOpenTrack, onPlayTrack) }
         item { SectionTitle("История") }
         if (screen.snapshot.historyTracks.isEmpty()) item { EmptyCard("История пока пуста.") }
-        items(screen.snapshot.historyTracks) { track -> TrackCardView(track, busy, onOpenTrack) }
+        items(screen.snapshot.historyTracks) { track -> TrackCardView(track, busy, onOpenTrack, onPlayTrack) }
         item { SectionTitle("Недавнее") }
         if (screen.snapshot.recent.isEmpty()) item { EmptyCard("Недавних треков пока нет.") }
-        items(screen.snapshot.recent) { track -> TrackCardView(track, busy, onOpenTrack) }
+        items(screen.snapshot.recent) { track -> TrackCardView(track, busy, onOpenTrack, onPlayTrack) }
         item { BottomActions(busy, onRefresh, onBack) }
     }
 }
@@ -338,6 +364,7 @@ private fun MixDetailScreen(
     busy: Boolean,
     onRefresh: () -> Unit,
     onOpenTrack: (TrackPreview) -> Unit,
+    onPlayTrack: (TrackPreview) -> Unit,
     onBack: () -> Unit,
 ) {
     LazyColumn(
@@ -363,7 +390,7 @@ private fun MixDetailScreen(
         }
         item { SectionTitle("Треки в основе") }
         if (screen.detail.seedPreview.isEmpty()) item { EmptyCard("Для этого микса пока нет seed preview.") }
-        items(screen.detail.seedPreview) { track -> TrackCardView(track, busy, onOpenTrack) }
+        items(screen.detail.seedPreview) { track -> TrackCardView(track, busy, onOpenTrack, onPlayTrack) }
         item { BottomActions(busy, onRefresh, onBack) }
     }
 }
@@ -372,6 +399,7 @@ private fun MixDetailScreen(
 private fun TrackDetailScreen(
     screen: AppScreen.Track,
     busy: Boolean,
+    onPlay: (TrackPreview) -> Unit,
     onBack: () -> Unit,
 ) {
     Column(
@@ -388,8 +416,13 @@ private fun TrackDetailScreen(
                 }
             }
         }
+        Button(
+            onClick = { onPlay(screen.track) },
+            enabled = !busy && !screen.track.title.isNullOrBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("▶ Играть на телефоне") }
         Text(
-            "В v0.2 это read-only карточка трека. Локальное воспроизведение появится в v0.3.",
+            "v0.3 получает provider-neutral TrackIdentity, а источник выбирает Baskov backend.",
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.weight(1f))
@@ -450,15 +483,59 @@ private fun MixCardView(mix: MixCard, busy: Boolean, onOpen: (MixCard) -> Unit) 
 }
 
 @Composable
-private fun TrackCardView(track: TrackPreview, busy: Boolean, onOpen: (TrackPreview) -> Unit) {
-    Card(
-        onClick = { onOpen(track) },
-        enabled = !busy,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun TrackCardView(
+    track: TrackPreview,
+    busy: Boolean,
+    onOpen: (TrackPreview) -> Unit,
+    onPlay: (TrackPreview) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
             Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { onOpen(track) },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Открыть") }
+                Button(
+                    onClick = { onPlay(track) },
+                    enabled = !busy && !track.title.isNullOrBlank(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("▶ Играть") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniPlayer(
+    playback: LocalPlaybackUiState,
+    onToggle: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val track = playback.current ?: return
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
+            Text(
+                buildString {
+                    append(track.artist ?: "Unknown artist")
+                    if (playback.buffering) append(" • загрузка…")
+                    else if (playback.isPlaying) append(" • играет")
+                    else append(" • пауза")
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                TextButton(onClick = onPrevious, enabled = playback.hasPrevious) { Text("⏮") }
+                TextButton(onClick = onToggle) { Text(if (playback.isPlaying) "⏸" else "▶") }
+                TextButton(onClick = onNext, enabled = playback.hasNext) { Text("⏭") }
+                TextButton(onClick = onStop) { Text("⏹") }
+            }
         }
     }
 }

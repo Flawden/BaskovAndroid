@@ -2,58 +2,45 @@
 
 External Android client for Baskov Music.
 
-## v0.2.0 — Library & Mixes
+## v0.3.0 — Local Playback
 
-v0.2 extends the proven v0.1 pairing/auth/Home vertical slice with real read-only navigation backed by BaskovDiscordBot v1.31.0:
+v0.3 turns the read-only v0.2 client into a foreground music player backed by BaskovDiscordBot v1.32.0:
 
 ```text
-Discord /device pair
+Home / Library / Mix
         ↓
-Android encrypted device session
+provider-neutral TrackPreview
         ↓
-Home
- ├── Library
- │    ├── Favorites
- │    ├── History
- │    └── Recent
- ├── Mixes
- │    ├── Today
- │    ├── For You
- │    └── Themes
- └── Mix detail
-      └── seedPreview
+GET /api/v1/playback/stream
+        ↓
+Baskov backend PlaybackResolver
+        ↓
+Ogg/Opus over authenticated HTTPS
+        ↓
+Media3 / ExoPlayer on Android
 ```
-
-Tracks can be opened as read-only detail cards. Playback is intentionally deferred to v0.3.
 
 ### Implemented
 
-- Kotlin + Jetpack Compose app shell.
-- Pairing via `POST /api/v1/auth/device/pair`.
-- Access + refresh token persistence encrypted with Android Keystore AES/GCM.
-- Automatic refresh-token rotation on authenticated `401` and one retry.
-- Account bootstrap and guild discovery.
-- Persisted guild selection.
-- Personalized Home.
-- Library reads from `GET /api/v1/library` including favorites/history track lists.
-- Mix navigation from `GET /api/v1/mixes`.
-- Read-only mix detail from `GET /api/v1/mixes/{stationSlug}`.
-- `seedPreview` is presented only as station seed data, never as a promised playback queue.
-- Read-only track detail.
-- Manual and Android system back navigation for v0.2 screens.
-- Empty/error/loading behavior and explicit refresh actions.
-- Release builds reject cleartext API URLs; debug builds may use HTTP for local development.
+- everything from v0.2: pairing, encrypted device session, guild selection, Home, Library and Mixes;
+- foreground AndroidX Media3 / ExoPlayer playback;
+- local queue derived from the current recent/favorites/history/mix seed list;
+- mini-player with play/pause, previous, next and stop;
+- play actions directly from track cards and track details;
+- Bearer-authenticated Ogg/Opus stream requests through the production HTTPS Product API;
+- existing access-token refresh rotation is validated before a playback queue is handed to Media3;
+- Android never performs YouTube/SoundCloud search or source extraction.
 
 ### Intentionally absent
 
-- local audio playback;
-- Media3 / MediaSession;
-- background playback service;
+- MediaSession and background playback service;
+- notification / lock-screen playback controls;
+- Bluetooth/headset transport actions;
+- seek/range UI;
 - remote Discord playback mutations;
-- favorites mutations;
-- mix start/stop controls.
+- favorites mutations.
 
-BaskovDiscordBot v1.31.0 still exposes this Android surface as authenticated read-only Product API.
+BaskovDiscordBot v1.32.0 keeps provider selection and fallback on the backend while the phone only consumes the authenticated audio stream.
 
 ## Build prerequisites
 
@@ -78,4 +65,4 @@ The gate runs `testDebugUnitTest`, `lintDebug` and `assembleDebug`.
 
 ## Backend
 
-The v0.2 client requires BaskovDiscordBot `v1.31.0+` Product API behind HTTPS. Do not expose raw Spring port `18080` publicly.
+The v0.3 client requires BaskovDiscordBot `v1.32.0+` Product API behind HTTPS. Do not expose raw Spring port `18080` publicly.

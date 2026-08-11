@@ -94,3 +94,13 @@ data class HomeSnapshot(
     val recent: List<TrackPreview>,
     val taste: TasteSummary,
 )
+
+data class PlaybackQueueItem(
+    val track: TrackPreview,
+    val streamUrl: String,
+)
+
+data class PlaybackQueueSpec(
+    val bearerToken: String,
+    val items: List<PlaybackQueueItem>,
+)
