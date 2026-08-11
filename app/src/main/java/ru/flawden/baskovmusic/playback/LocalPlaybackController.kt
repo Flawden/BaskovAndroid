@@ -1,15 +1,14 @@
 package ru.flawden.baskovmusic.playback
 
+import android.content.ComponentName
 import android.content.Context
-import androidx.annotation.OptIn
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,39 +16,121 @@ import ru.flawden.baskovmusic.model.PlaybackQueueSpec
 import ru.flawden.baskovmusic.model.TrackPreview
 
 /**
- * Foreground-only local playback for v0.3. The controller consumes only Baskov's authenticated
- * Ogg/Opus stream URLs; it never performs YouTube/SoundCloud search or provider extraction.
+ * UI-side controller for the v0.4 MediaSessionService.
+ *
+ * The Activity/ViewModel no longer owns ExoPlayer. It owns only a MediaController connection,
+ * which means leaving the Activity does not tear playback down. The system session is the single
+ * source of truth for notification, lock-screen, headset/Bluetooth and in-app controls.
  */
 class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable {
-    private val httpFactory = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.3.0")
-    private val mediaSourceFactory = DefaultMediaSourceFactory(context)
-        .setDataSourceFactory(httpFactory)
-    private val player = ExoPlayer.Builder(context)
-        .setMediaSourceFactory(mediaSourceFactory)
-        .build()
+    private val appContext = context.applicationContext
+    private val mutableState = MutableStateFlow(LocalPlaybackUiState(connecting = true))
+    private val sessionToken = SessionToken(
+        appContext,
+        ComponentName(appContext, PlaybackService::class.java),
+    )
+    private val controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
 
-    private val mutableState = MutableStateFlow(LocalPlaybackUiState())
-    private var queue: List<TrackPreview> = emptyList()
+    private var controller: MediaController? = null
+    private var pendingPlay: PendingPlay? = null
+    private var closed = false
 
     val state: StateFlow<LocalPlaybackUiState> = mutableState.asStateFlow()
 
     init {
-        player.addListener(this)
+        controllerFuture.addListener(
+            {
+                if (closed) return@addListener
+                runCatching { controllerFuture.get() }
+                    .onSuccess { connected ->
+                        controller = connected
+                        connected.addListener(this)
+                        publish(error = null)
+                        pendingPlay?.let { pending ->
+                            pendingPlay = null
+                            playNow(connected, pending.spec, pending.startIndex)
+                        }
+                    }
+                    .onFailure { error ->
+                        mutableState.value = mutableState.value.copy(
+                            connecting = false,
+                            error = error.message ?: error::class.java.simpleName,
+                        )
+                    }
+            },
+            ContextCompat.getMainExecutor(appContext),
+        )
     }
 
-    @OptIn(UnstableApi::class)
     fun play(spec: PlaybackQueueSpec, startIndex: Int) {
         require(spec.items.isNotEmpty()) { "Playback queue is empty" }
-        val safeIndex = startIndex.coerceIn(spec.items.indices)
-        queue = spec.items.map { it.track }
-        httpFactory.setDefaultRequestProperties(
-            mapOf(
-                "Authorization" to "Bearer ${spec.bearerToken}",
-                "Accept" to "audio/ogg",
-            ),
-        )
+        PlaybackAuthBridge.update(spec.bearerToken)
+        val connected = controller
+        if (connected == null) {
+            pendingPlay = PendingPlay(spec, startIndex)
+            mutableState.value = mutableState.value.copy(connecting = true, error = null)
+            return
+        }
+        playNow(connected, spec, startIndex)
+    }
 
+    fun togglePlayPause() {
+        val connected = controller ?: return
+        if (connected.mediaItemCount == 0) return
+        if (connected.isPlaying) connected.pause() else connected.play()
+        publish()
+    }
+
+    fun next() {
+        controller?.let { connected ->
+            if (connected.hasNextMediaItem()) {
+                connected.seekToNextMediaItem()
+                connected.play()
+            }
+        }
+        publish()
+    }
+
+    fun previous() {
+        controller?.let { connected ->
+            if (connected.hasPreviousMediaItem()) {
+                connected.seekToPreviousMediaItem()
+                connected.play()
+            } else if (connected.currentPosition > 3_000L) {
+                connected.seekTo(0L)
+            }
+        }
+        publish()
+    }
+
+    fun stop() {
+        pendingPlay = null
+        controller?.run {
+            stop()
+            clearMediaItems()
+        }
+        PlaybackAuthBridge.clear()
+        mutableState.value = LocalPlaybackUiState(connecting = controller == null)
+    }
+
+    fun clearError() {
+        mutableState.value = mutableState.value.copy(error = null)
+    }
+
+    override fun onIsPlayingChanged(isPlaying: Boolean) = publish()
+
+    override fun onPlaybackStateChanged(playbackState: Int) = publish()
+
+    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = publish(error = null)
+
+    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = publish()
+
+    override fun onPlayerError(error: PlaybackException) {
+        publish(error = error.message ?: error.errorCodeName)
+    }
+
+    private fun playNow(connected: MediaController, spec: PlaybackQueueSpec, startIndex: Int) {
+        val safeIndex = startIndex.coerceIn(spec.items.indices)
         val mediaItems = spec.items.mapIndexed { index, item ->
             MediaItem.Builder()
                 .setUri(item.streamUrl)
@@ -63,86 +144,61 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                 .build()
         }
 
-        player.setMediaItems(mediaItems, safeIndex, 0L)
-        player.prepare()
-        player.play()
+        connected.setMediaItems(mediaItems, safeIndex, 0L)
+        connected.prepare()
+        connected.play()
         publish(error = null)
-    }
-
-    fun togglePlayPause() {
-        if (player.mediaItemCount == 0) return
-        if (player.isPlaying) player.pause() else player.play()
-        publish()
-    }
-
-    fun next() {
-        if (player.hasNextMediaItem()) {
-            player.seekToNextMediaItem()
-            player.play()
-        }
-        publish()
-    }
-
-    fun previous() {
-        if (player.hasPreviousMediaItem()) {
-            player.seekToPreviousMediaItem()
-            player.play()
-        } else if (player.currentPosition > 3_000L) {
-            player.seekTo(0L)
-        }
-        publish()
-    }
-
-    fun stop() {
-        player.stop()
-        player.clearMediaItems()
-        queue = emptyList()
-        mutableState.value = LocalPlaybackUiState()
-    }
-
-    fun clearError() {
-        mutableState.value = mutableState.value.copy(error = null)
-    }
-
-    override fun onIsPlayingChanged(isPlaying: Boolean) {
-        publish()
-    }
-
-    override fun onPlaybackStateChanged(playbackState: Int) {
-        publish()
-    }
-
-    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-        publish(error = null)
-    }
-
-    override fun onPlayerError(error: PlaybackException) {
-        publish(error = error.message ?: error.errorCodeName)
     }
 
     private fun publish(error: String? = mutableState.value.error) {
-        val index = player.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
+        val connected = controller
+        if (connected == null) {
+            mutableState.value = mutableState.value.copy(connecting = true, error = error)
+            return
+        }
+
+        val queue = (0 until connected.mediaItemCount).map { index ->
+            connected.getMediaItemAt(index).toTrackPreview()
+        }
+        val currentIndex = connected.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
+
         mutableState.value = LocalPlaybackUiState(
             queue = queue,
-            currentIndex = index,
-            isPlaying = player.isPlaying,
-            buffering = player.playbackState == Player.STATE_BUFFERING,
+            currentIndex = currentIndex,
+            isPlaying = connected.isPlaying,
+            buffering = connected.playbackState == Player.STATE_BUFFERING,
+            connecting = false,
             error = error,
         )
     }
 
     override fun close() {
-        player.removeListener(this)
-        player.release()
-        queue = emptyList()
+        if (closed) return
+        closed = true
+        pendingPlay = null
+        controller?.removeListener(this)
+        controller = null
+        MediaController.releaseFuture(controllerFuture)
     }
+
+    private data class PendingPlay(
+        val spec: PlaybackQueueSpec,
+        val startIndex: Int,
+    )
 }
+
+private fun MediaItem.toTrackPreview(): TrackPreview = TrackPreview(
+    stableKey = mediaId.takeIf { it.isNotBlank() },
+    title = mediaMetadata.title?.toString(),
+    artist = mediaMetadata.artist?.toString(),
+)
 
 data class LocalPlaybackUiState(
     val queue: List<TrackPreview> = emptyList(),
     val currentIndex: Int = -1,
     val isPlaying: Boolean = false,
     val buffering: Boolean = false,
+    val connecting: Boolean = false,
     val error: String? = null,
 ) {
     val current: TrackPreview?

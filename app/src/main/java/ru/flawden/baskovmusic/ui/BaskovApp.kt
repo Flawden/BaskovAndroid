@@ -422,7 +422,7 @@ private fun TrackDetailScreen(
             modifier = Modifier.fillMaxWidth(),
         ) { Text("▶ Играть на телефоне") }
         Text(
-            "v0.3 получает provider-neutral TrackIdentity, а источник выбирает Baskov backend.",
+            "v0.4 играет через системную MediaSession, а provider/source по-прежнему выбирает Baskov backend.",
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.weight(1f))
@@ -524,7 +524,8 @@ private fun MiniPlayer(
             Text(
                 buildString {
                     append(track.artist ?: "Unknown artist")
-                    if (playback.buffering) append(" • загрузка…")
+                    if (playback.connecting) append(" • подключение…")
+                    else if (playback.buffering) append(" • загрузка…")
                     else if (playback.isPlaying) append(" • играет")
                     else append(" • пауза")
                 },

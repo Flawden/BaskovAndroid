@@ -3,7 +3,10 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
 
 & ".\scripts\configure-android-sdk.ps1"
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if (-not $?) {
+    $ExitCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+    exit $ExitCode
+}
 
 if (-not (Test-Path ".\gradle\wrapper\gradle-wrapper.jar")) {
     & ".\scripts\bootstrap-gradle-wrapper.ps1"

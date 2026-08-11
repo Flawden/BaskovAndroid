@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0 — System Playback & Background Experience
+
+- Moved ExoPlayer ownership from the Activity/ViewModel into a Media3 `MediaSessionService`.
+- Added Android background playback with the Media3-managed foreground media notification.
+- Added system/lock-screen/headset/Bluetooth playback controls through `MediaSession`.
+- In-app playback now uses a `MediaController` connected to the same system playback session.
+- Added automatic media audio-focus handling and audio-becoming-noisy pause behavior.
+- Reopening the app reconnects to the active session and reconstructs queue/playback state.
+- Preserved provider-neutral playback: Android still receives only authenticated Baskov Ogg/Opus stream URLs.
+- Persistent auth remains encrypted; the playback Bearer token stays process-local and is cleared on explicit stop/logout/guild switch.
+- Added `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MEDIA_PLAYBACK` declarations and a `mediaPlayback` service type.
+- Added `androidx.media3:media3-session:1.8.0` without changing the existing Media3 ExoPlayer version.
+- Bumped Android app version to `0.4.0` / versionCode `4`.
+
 ## 0.3.0 — Local Playback
 
 - Added foreground local audio playback with AndroidX Media3 / ExoPlayer.
