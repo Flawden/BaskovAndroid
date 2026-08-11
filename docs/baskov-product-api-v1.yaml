@@ -1,0 +1,560 @@
+openapi: 3.0.3
+info:
+  title: Baskov Music Product API
+  version: 1.0.0
+  description: >-
+    Authenticated read API and device-session lifecycle used by external Baskov Music clients.
+    Music mutations are intentionally not part of v1. Discord remains the source of pairing proof.
+servers:
+  - url: /
+paths:
+  /api/v1/capabilities:
+    get:
+      operationId: getCapabilities
+      responses:
+        '200':
+          description: Product capabilities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+  /api/v1/guilds:
+    get:
+      operationId: getGuilds
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Discord guilds accessible to the linked identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Guilds'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/home:
+    get:
+      operationId: getHome
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GuildId'
+      responses:
+        '200':
+          description: Personalized home snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Home'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/mixes:
+    get:
+      operationId: getMixes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GuildId'
+      responses:
+        '200':
+          description: Mix cards and continuation state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mixes'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/player:
+    get:
+      operationId: getPlayer
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GuildId'
+      responses:
+        '200':
+          description: Read-only playback snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Player'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/library:
+    get:
+      operationId: getLibrary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GuildId'
+      responses:
+        '200':
+          description: Personal library snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Library'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/auth/device/pair:
+    post:
+      operationId: pairDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PairRequest'
+      responses:
+        '200':
+          description: New device tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tokens'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/refresh:
+    post:
+      operationId: refreshDeviceSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Rotated access and refresh tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tokens'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/logout:
+    post:
+      operationId: logoutDeviceSession
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current session revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/me:
+    get:
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current Baskov account and device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/devices:
+    get:
+      operationId: getDevices
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Device sessions for current Baskov user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Devices'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/devices/{sessionId}:
+    delete:
+      operationId: revokeDevice
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Target device revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Device session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: BaskovAccessToken
+  parameters:
+    GuildId:
+      name: guildId
+      in: query
+      required: true
+      description: Discord guild snowflake in decimal form.
+      schema:
+        type: string # Discord snowflake
+        pattern: '^[1-9][0-9]{0,19}$'
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing, invalid, expired or revoked credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Linked Discord identity cannot access requested guild
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Capabilities:
+      type: object
+      required: [apiVersion, mode, authenticationRequiredForReads, mutationsEnabled, authenticationRequiredForMutations, resources]
+      properties:
+        apiVersion:
+          type: string
+        mode:
+          type: string
+        authenticationRequiredForReads:
+          type: boolean
+        mutationsEnabled:
+          type: boolean
+        authenticationRequiredForMutations:
+          type: boolean
+        resources:
+          type: array
+          items:
+            type: string
+    Guilds:
+      type: object
+      required: [userId, guilds]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        guilds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Guild'
+    Guild:
+      type: object
+      required: [guildId, name]
+      properties:
+        guildId:
+          type: string # Discord snowflake
+        name:
+          type: string
+    Home:
+      type: object
+      required: [guildId, userId, date, today, forYou, themes, library, recent, taste]
+      properties:
+        guildId:
+          type: string # Discord snowflake
+        userId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        continuation:
+          allOf:
+            - $ref: '#/components/schemas/Continuation'
+          nullable: true
+        today:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mix'
+        forYou:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mix'
+        themes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Theme'
+        library:
+          $ref: '#/components/schemas/Library'
+        recent:
+          type: array
+          items:
+            $ref: '#/components/schemas/Track'
+        taste:
+          $ref: '#/components/schemas/Taste'
+    Mixes:
+      type: object
+      required: [guildId, userId, date, today, forYou, themes]
+      properties:
+        guildId:
+          type: string # Discord snowflake
+        userId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        continuation:
+          allOf:
+            - $ref: '#/components/schemas/Continuation'
+          nullable: true
+        today:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mix'
+        forYou:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mix'
+        themes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Theme'
+    Player:
+      type: object
+      required: [guildId, sessionActive, playing, paused, volume, repeatMode, queueSize, positionMillis, durationMillis, radio]
+      properties:
+        guildId:
+          type: string # Discord snowflake
+        sessionActive:
+          type: boolean
+        playing:
+          type: boolean
+        paused:
+          type: boolean
+        volume:
+          type: integer
+        repeatMode:
+          type: string
+        queueSize:
+          type: integer
+        positionMillis:
+          type: integer
+          format: int64
+        durationMillis:
+          type: integer
+          format: int64
+        current:
+          allOf:
+            - $ref: '#/components/schemas/Track'
+          nullable: true
+        radio:
+          $ref: '#/components/schemas/Radio'
+    Library:
+      type: object
+      required: [guildId, userId, favorites, personalHistory, recent]
+      properties:
+        guildId:
+          type: string # Discord snowflake
+        userId:
+          type: string
+          format: uuid
+        favorites:
+          type: integer
+        personalHistory:
+          type: integer
+        recent:
+          type: array
+          items:
+            $ref: '#/components/schemas/Track'
+    Continuation:
+      type: object
+      properties:
+        kind:
+          type: string
+        label:
+          type: string
+        stationSlug:
+          type: string
+        theme:
+          type: string
+        releaseDate:
+          type: string
+          format: date
+        generatedTracks:
+          type: integer
+          format: int64
+    Mix:
+      type: object
+      properties:
+        stationSlug:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        available:
+          type: boolean
+        daily:
+          type: boolean
+    Theme:
+      type: object
+      properties:
+        name:
+          type: string
+        affinity:
+          type: number
+          format: double
+    Track:
+      type: object
+      properties:
+        stableKey:
+          type: string
+        title:
+          type: string
+        artist:
+          type: string
+    Taste:
+      type: object
+      properties:
+        evidenceSignals:
+          type: integer
+        confidence:
+          type: number
+          format: double
+        recommendations:
+          type: integer
+    Radio:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        stationSlug:
+          type: string
+        theme:
+          type: string
+        strategy:
+          type: string
+        generatedTracks:
+          type: integer
+          format: int64
+    PairRequest:
+      type: object
+      required: [code, deviceName]
+      properties:
+        code:
+          type: string
+        deviceName:
+          type: string
+          maxLength: 80
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    Tokens:
+      type: object
+      required: [userId, sessionId, deviceName, accessToken, refreshToken, accessExpiresAtEpochMillis, refreshExpiresAtEpochMillis]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        accessExpiresAtEpochMillis:
+          type: integer
+          format: int64
+        refreshExpiresAtEpochMillis:
+          type: integer
+          format: int64
+    Me:
+      type: object
+      required: [userId, displayName, sessionId, deviceName]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        sessionId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+    Device:
+      type: object
+      required: [sessionId, deviceName, createdAtEpochMillis, lastRefreshedAtEpochMillis, revoked, expired]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        deviceName:
+          type: string
+        createdAtEpochMillis:
+          type: integer
+          format: int64
+        lastRefreshedAtEpochMillis:
+          type: integer
+          format: int64
+        revoked:
+          type: boolean
+        expired:
+          type: boolean
+    Devices:
+      type: object
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/Device'
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
