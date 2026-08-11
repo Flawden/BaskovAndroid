@@ -7,14 +7,18 @@ import org.json.JSONObject
 import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
 import ru.flawden.baskovmusic.model.HomeSnapshot
+import ru.flawden.baskovmusic.model.LibrarySnapshot
 import ru.flawden.baskovmusic.model.LibrarySummary
 import ru.flawden.baskovmusic.model.MixCard
+import ru.flawden.baskovmusic.model.MixDetail
+import ru.flawden.baskovmusic.model.MixesSnapshot
 import ru.flawden.baskovmusic.model.SessionTokens
 import ru.flawden.baskovmusic.model.TasteSummary
 import ru.flawden.baskovmusic.model.ThemeAffinity
 import ru.flawden.baskovmusic.model.TrackPreview
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 class BaskovApiClient(
     private val baseUrl: String,
@@ -56,14 +60,33 @@ class BaskovApiClient(
         }
     }
 
-    suspend fun home(accessToken: String, guildId: String): HomeSnapshot {
-        val root = requestJson(
+    suspend fun home(accessToken: String, guildId: String): HomeSnapshot =
+        requestJson(
             "GET",
             "api/v1/home?guildId=${encodeQuery(guildId)}",
             accessToken = accessToken,
-        )
-        return root.toHome()
-    }
+        ).toHome()
+
+    suspend fun library(accessToken: String, guildId: String): LibrarySnapshot =
+        requestJson(
+            "GET",
+            "api/v1/library?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).toLibrary()
+
+    suspend fun mixes(accessToken: String, guildId: String): MixesSnapshot =
+        requestJson(
+            "GET",
+            "api/v1/mixes?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).toMixes()
+
+    suspend fun mixDetail(accessToken: String, guildId: String, stationSlug: String): MixDetail =
+        requestJson(
+            "GET",
+            "api/v1/mixes/${encodePathSegment(stationSlug)}?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).toMixDetail()
 
     suspend fun logout(accessToken: String) {
         requestJson("POST", "api/v1/auth/logout", accessToken = accessToken)
@@ -140,6 +163,36 @@ class BaskovApiClient(
         },
     )
 
+    private fun JSONObject.toLibrary() = LibrarySnapshot(
+        guildId = getString("guildId"),
+        userId = getString("userId"),
+        favorites = getInt("favorites"),
+        personalHistory = getInt("personalHistory"),
+        recent = getJSONArray("recent").mapTracks(),
+        favoriteTracks = getJSONArray("favoriteTracks").mapTracks(),
+        historyTracks = getJSONArray("historyTracks").mapTracks(),
+    )
+
+    private fun JSONObject.toMixes() = MixesSnapshot(
+        guildId = getString("guildId"),
+        userId = getString("userId"),
+        date = getString("date"),
+        today = getJSONArray("today").mapMixes(),
+        forYou = getJSONArray("forYou").mapMixes(),
+        themes = getJSONArray("themes").mapThemes(),
+    )
+
+    private fun JSONObject.toMixDetail() = MixDetail(
+        guildId = getString("guildId"),
+        userId = getString("userId"),
+        stationSlug = getString("stationSlug"),
+        label = optString("label").nullIfBlank() ?: getString("stationSlug"),
+        description = optString("description").nullIfBlank(),
+        available = optBoolean("available", false),
+        daily = optBoolean("daily", false),
+        seedPreview = getJSONArray("seedPreview").mapTracks(),
+    )
+
     private fun JSONObject.toMix() = MixCard(
         stationSlug = optString("stationSlug").nullIfBlank(),
         label = optString("label").nullIfBlank(),
@@ -169,6 +222,10 @@ class BaskovApiClient(
         for (index in 0 until length()) add(getJSONObject(index).toTrack())
     }
 
-    private fun encodeQuery(value: String): String = java.net.URLEncoder.encode(value, Charsets.UTF_8.name())
+    private fun encodeQuery(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
+
+    private fun encodePathSegment(value: String): String =
+        URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
+
     private fun String.nullIfBlank(): String? = takeIf { it.isNotBlank() }
 }

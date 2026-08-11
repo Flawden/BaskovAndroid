@@ -8,6 +8,9 @@ import ru.flawden.baskovmusic.data.auth.SessionStore
 import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
 import ru.flawden.baskovmusic.model.HomeSnapshot
+import ru.flawden.baskovmusic.model.LibrarySnapshot
+import ru.flawden.baskovmusic.model.MixDetail
+import ru.flawden.baskovmusic.model.MixesSnapshot
 
 class BaskovRepository(
     private val sessionStore: SessionStore,
@@ -28,6 +31,14 @@ class BaskovRepository(
     suspend fun me(): AccountInfo = authenticated { client, token -> client.me(token) }
     suspend fun guilds(): List<GuildSummary> = authenticated { client, token -> client.guilds(token) }
     suspend fun home(guildId: String): HomeSnapshot = authenticated { client, token -> client.home(token, guildId) }
+    suspend fun library(guildId: String): LibrarySnapshot =
+        authenticated { client, token -> client.library(token, guildId) }
+
+    suspend fun mixes(guildId: String): MixesSnapshot =
+        authenticated { client, token -> client.mixes(token, guildId) }
+
+    suspend fun mixDetail(guildId: String, stationSlug: String): MixDetail =
+        authenticated { client, token -> client.mixDetail(token, guildId, stationSlug) }
 
     suspend fun selectGuild(guildId: String) = sessionStore.saveSelectedGuildId(guildId)
 

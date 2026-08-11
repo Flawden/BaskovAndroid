@@ -47,6 +47,36 @@ data class LibrarySummary(
     val recent: List<TrackPreview>,
 )
 
+data class LibrarySnapshot(
+    val guildId: String,
+    val userId: String,
+    val favorites: Int,
+    val personalHistory: Int,
+    val recent: List<TrackPreview>,
+    val favoriteTracks: List<TrackPreview>,
+    val historyTracks: List<TrackPreview>,
+)
+
+data class MixesSnapshot(
+    val guildId: String,
+    val userId: String,
+    val date: String,
+    val today: List<MixCard>,
+    val forYou: List<MixCard>,
+    val themes: List<ThemeAffinity>,
+)
+
+data class MixDetail(
+    val guildId: String,
+    val userId: String,
+    val stationSlug: String,
+    val label: String,
+    val description: String?,
+    val available: Boolean,
+    val daily: Boolean,
+    val seedPreview: List<TrackPreview>,
+)
+
 data class TasteSummary(
     val evidenceSignals: Int,
     val confidence: Double,

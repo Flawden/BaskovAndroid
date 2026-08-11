@@ -68,6 +68,31 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/mixes/{stationSlug}:
+    get:
+      operationId: getMixDetail
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GuildId'
+        - name: stationSlug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Curated station metadata and seed preview. seedPreview is not a playback queue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MixDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/player:
     get:
       operationId: getPlayer
@@ -380,7 +405,7 @@ components:
           $ref: '#/components/schemas/Radio'
     Library:
       type: object
-      required: [guildId, userId, favorites, personalHistory, recent]
+      required: [guildId, userId, favorites, personalHistory, recent, favoriteTracks, historyTracks]
       properties:
         guildId:
           type: string # Discord snowflake
@@ -393,6 +418,38 @@ components:
           type: integer
         recent:
           type: array
+          items:
+            $ref: '#/components/schemas/Track'
+        favoriteTracks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Track'
+        historyTracks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Track'
+    MixDetail:
+      type: object
+      required: [guildId, userId, stationSlug, label, description, available, daily, seedPreview]
+      properties:
+        guildId:
+          type: string
+        userId:
+          type: string
+          format: uuid
+        stationSlug:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        available:
+          type: boolean
+        daily:
+          type: boolean
+        seedPreview:
+          type: array
+          description: Read-only station seed preview; not a predicted playback queue.
           items:
             $ref: '#/components/schemas/Track'
     Continuation:

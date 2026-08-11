@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.util.ArrayDeque
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,11 +14,16 @@ import ru.flawden.baskovmusic.data.BaskovRepository
 import ru.flawden.baskovmusic.data.api.PairingCodePolicy
 import ru.flawden.baskovmusic.data.api.ServerUrlPolicy
 import ru.flawden.baskovmusic.data.auth.SessionStore
+import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
+import ru.flawden.baskovmusic.model.MixCard
+import ru.flawden.baskovmusic.model.TrackPreview
 
 class BaskovViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = BaskovRepository(SessionStore(application))
     private val mutableState = MutableStateFlow(AppUiState())
+    private val backStack = ArrayDeque<AppScreen>()
+
     val state: StateFlow<AppUiState> = mutableState.asStateFlow()
 
     init {
@@ -35,24 +41,83 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         repository.selectGuild(guild.guildId)
         val account = repository.me()
         val snapshot = repository.home(guild.guildId)
-        mutableState.value = AppUiState(screen = AppScreen.Home(account, guild, snapshot))
+        backStack.clear()
+        setScreen(AppScreen.Home(account, guild, snapshot))
     }
 
     fun refreshHome() = launchBusy {
         val current = mutableState.value.screen as? AppScreen.Home ?: return@launchBusy
         val snapshot = repository.home(current.guild.guildId)
-        mutableState.value = AppUiState(screen = current.copy(snapshot = snapshot))
+        setScreen(current.copy(snapshot = snapshot))
+    }
+
+    fun openLibrary() = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        val snapshot = repository.library(context.guild.guildId)
+        navigate(AppScreen.Library(context.account, context.guild, snapshot))
+    }
+
+    fun refreshLibrary() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Library ?: return@launchBusy
+        val snapshot = repository.library(current.guild.guildId)
+        setScreen(current.copy(snapshot = snapshot))
+    }
+
+    fun openMixes() = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        val snapshot = repository.mixes(context.guild.guildId)
+        navigate(AppScreen.Mixes(context.account, context.guild, snapshot))
+    }
+
+    fun refreshMixes() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Mixes ?: return@launchBusy
+        val snapshot = repository.mixes(current.guild.guildId)
+        setScreen(current.copy(snapshot = snapshot))
+    }
+
+    fun openMix(mix: MixCard) {
+        val stationSlug = mix.stationSlug
+        if (stationSlug.isNullOrBlank()) {
+            setError("У этого микса нет stationSlug, открыть его нельзя.")
+            return
+        }
+        openMix(stationSlug)
+    }
+
+    private fun openMix(stationSlug: String) = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        val detail = repository.mixDetail(context.guild.guildId, stationSlug)
+        navigate(AppScreen.Mix(context.account, context.guild, detail))
+    }
+
+    fun refreshMix() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Mix ?: return@launchBusy
+        val detail = repository.mixDetail(current.guild.guildId, current.detail.stationSlug)
+        setScreen(current.copy(detail = detail))
+    }
+
+    fun openTrack(track: TrackPreview) {
+        if (mutableState.value.busy) return
+        val context = currentContext() ?: return
+        navigate(AppScreen.Track(context.account, context.guild, track))
+    }
+
+    fun goBack() {
+        if (mutableState.value.busy || backStack.isEmpty()) return
+        setScreen(backStack.removeLast())
     }
 
     fun changeGuild() = launchBusy {
         val account = repository.me()
         val guilds = repository.guilds()
-        mutableState.value = AppUiState(screen = AppScreen.GuildPicker(account, guilds))
+        backStack.clear()
+        setScreen(AppScreen.GuildPicker(account, guilds))
     }
 
     fun logout() = launchBusy {
         repository.logout()
-        mutableState.value = AppUiState(screen = AppScreen.Pairing(repository.savedBaseUrl().orEmpty()))
+        backStack.clear()
+        setScreen(AppScreen.Pairing(repository.savedBaseUrl().orEmpty()))
     }
 
     fun clearError() {
@@ -62,9 +127,10 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     private fun bootstrap() = viewModelScope.launch {
         runCatching {
             if (repository.hasSession()) loadAuthenticatedState()
-            else mutableState.value = AppUiState(screen = AppScreen.Pairing(repository.savedBaseUrl().orEmpty()))
+            else setScreen(AppScreen.Pairing(repository.savedBaseUrl().orEmpty()))
         }.onFailure {
             repository.logout()
+            backStack.clear()
             mutableState.value = AppUiState(
                 screen = AppScreen.Pairing(repository.savedBaseUrl().orEmpty()),
                 error = friendlyMessage(it),
@@ -75,6 +141,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun loadAuthenticatedState() {
         val account = repository.me()
         val guilds = repository.guilds()
+        backStack.clear()
         if (guilds.isEmpty()) {
             mutableState.value = AppUiState(
                 screen = AppScreen.GuildPicker(account, emptyList()),
@@ -85,12 +152,36 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         val selectedId = repository.selectedGuildId()
         val selected = guilds.firstOrNull { it.guildId == selectedId }
         if (selected == null) {
-            mutableState.value = AppUiState(screen = AppScreen.GuildPicker(account, guilds))
+            setScreen(AppScreen.GuildPicker(account, guilds))
             return
         }
-        mutableState.value = AppUiState(
-            screen = AppScreen.Home(account, selected, repository.home(selected.guildId)),
-        )
+        setScreen(AppScreen.Home(account, selected, repository.home(selected.guildId)))
+    }
+
+    private fun currentContext(): ScreenContext? = when (val screen = mutableState.value.screen) {
+        is AppScreen.Home -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Library -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Mixes -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Mix -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Track -> ScreenContext(screen.account, screen.guild)
+        AppScreen.Loading,
+        is AppScreen.Pairing,
+        is AppScreen.GuildPicker,
+        -> null
+    }
+
+    private fun navigate(screen: AppScreen) {
+        val current = mutableState.value.screen
+        if (current != screen) backStack.addLast(current)
+        setScreen(screen)
+    }
+
+    private fun setScreen(screen: AppScreen) {
+        mutableState.value = mutableState.value.copy(screen = screen, error = null)
+    }
+
+    private fun setError(message: String) {
+        mutableState.value = mutableState.value.copy(error = message)
     }
 
     private fun launchBusy(block: suspend () -> Unit) = viewModelScope.launch {
@@ -107,4 +198,9 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         .take(80)
 
     private fun friendlyMessage(error: Throwable): String = error.message ?: error::class.java.simpleName
+
+    private data class ScreenContext(
+        val account: AccountInfo,
+        val guild: GuildSummary,
+    )
 }

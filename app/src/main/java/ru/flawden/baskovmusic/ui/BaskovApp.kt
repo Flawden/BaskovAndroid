@@ -1,5 +1,6 @@
 package ru.flawden.baskovmusic.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.MixCard
+import ru.flawden.baskovmusic.model.TrackPreview
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +51,21 @@ fun BaskovApp(viewModel: BaskovViewModel) {
             viewModel.clearError()
         }
     }
+
+    val supportsBack = when (state.screen) {
+        is AppScreen.Library,
+        is AppScreen.Mixes,
+        is AppScreen.Mix,
+        is AppScreen.Track,
+        -> true
+
+        AppScreen.Loading,
+        is AppScreen.Pairing,
+        is AppScreen.GuildPicker,
+        is AppScreen.Home,
+        -> false
+    }
+    BackHandler(enabled = supportsBack && !state.busy) { viewModel.goBack() }
 
     MaterialTheme {
         Scaffold(
@@ -73,8 +90,38 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         screen = screen,
                         busy = state.busy,
                         onRefresh = viewModel::refreshHome,
+                        onOpenLibrary = viewModel::openLibrary,
+                        onOpenMixes = viewModel::openMixes,
+                        onOpenMix = viewModel::openMix,
+                        onOpenTrack = viewModel::openTrack,
                         onChangeGuild = viewModel::changeGuild,
                         onLogout = viewModel::logout,
+                    )
+                    is AppScreen.Library -> LibraryScreen(
+                        screen = screen,
+                        busy = state.busy,
+                        onRefresh = viewModel::refreshLibrary,
+                        onOpenTrack = viewModel::openTrack,
+                        onBack = viewModel::goBack,
+                    )
+                    is AppScreen.Mixes -> MixesScreen(
+                        screen = screen,
+                        busy = state.busy,
+                        onRefresh = viewModel::refreshMixes,
+                        onOpenMix = viewModel::openMix,
+                        onBack = viewModel::goBack,
+                    )
+                    is AppScreen.Mix -> MixDetailScreen(
+                        screen = screen,
+                        busy = state.busy,
+                        onRefresh = viewModel::refreshMix,
+                        onOpenTrack = viewModel::openTrack,
+                        onBack = viewModel::goBack,
+                    )
+                    is AppScreen.Track -> TrackDetailScreen(
+                        screen = screen,
+                        busy = state.busy,
+                        onBack = viewModel::goBack,
                     )
                 }
 
@@ -150,7 +197,9 @@ private fun GuildPickerScreen(
                 }
             }
         }
-        OutlinedButton(onClick = onLogout, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Отключить устройство") }
+        OutlinedButton(onClick = onLogout, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+            Text("Отключить устройство")
+        }
     }
 }
 
@@ -159,6 +208,10 @@ private fun HomeScreen(
     screen: AppScreen.Home,
     busy: Boolean,
     onRefresh: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenMixes: () -> Unit,
+    onOpenMix: (MixCard) -> Unit,
+    onOpenTrack: (TrackPreview) -> Unit,
     onChangeGuild: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -171,11 +224,24 @@ private fun HomeScreen(
             Text("${screen.account.displayName} • ${screen.snapshot.date}")
         }
         item { HomeSummary(screen.snapshot) }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onOpenLibrary, enabled = !busy, modifier = Modifier.weight(1f)) {
+                    Text("Библиотека")
+                }
+                Button(onClick = onOpenMixes, enabled = !busy, modifier = Modifier.weight(1f)) {
+                    Text("Миксы")
+                }
+            }
+        }
         item { SectionTitle("Сегодня") }
-        items(screen.snapshot.today) { MixCardView(it) }
+        if (screen.snapshot.today.isEmpty()) item { EmptyCard("На сегодня миксов пока нет.") }
+        items(screen.snapshot.today) { MixCardView(it, busy, onOpenMix) }
         item { SectionTitle("Для тебя") }
-        items(screen.snapshot.forYou) { MixCardView(it) }
+        if (screen.snapshot.forYou.isEmpty()) item { EmptyCard("Персональные миксы ещё формируются.") }
+        items(screen.snapshot.forYou) { MixCardView(it, busy, onOpenMix) }
         item { SectionTitle("Темы") }
+        if (screen.snapshot.themes.isEmpty()) item { EmptyCard("Темы появятся после накопления сигналов вкуса.") }
         items(screen.snapshot.themes) { theme ->
             Card(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -185,14 +251,8 @@ private fun HomeScreen(
             }
         }
         item { SectionTitle("Недавнее") }
-        items(screen.snapshot.recent) { track ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
-                    Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
+        if (screen.snapshot.recent.isEmpty()) item { EmptyCard("История прослушиваний пока пуста.") }
+        items(screen.snapshot.recent) { track -> TrackCardView(track, busy, onOpenTrack) }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRefresh, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Обновить") }
@@ -202,6 +262,156 @@ private fun HomeScreen(
             OutlinedButton(onClick = onLogout, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Выйти") }
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+private fun LibraryScreen(
+    screen: AppScreen.Library,
+    busy: Boolean,
+    onRefresh: () -> Unit,
+    onOpenTrack: (TrackPreview) -> Unit,
+    onBack: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { ScreenHeader("Библиотека", screen.guild.name, busy, onBack) }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Избранное: ${screen.snapshot.favorites}", fontWeight = FontWeight.SemiBold)
+                    Text("История: ${screen.snapshot.personalHistory}")
+                }
+            }
+        }
+        item { SectionTitle("Избранное") }
+        if (screen.snapshot.favoriteTracks.isEmpty()) item { EmptyCard("В избранном пока ничего нет.") }
+        items(screen.snapshot.favoriteTracks) { track -> TrackCardView(track, busy, onOpenTrack) }
+        item { SectionTitle("История") }
+        if (screen.snapshot.historyTracks.isEmpty()) item { EmptyCard("История пока пуста.") }
+        items(screen.snapshot.historyTracks) { track -> TrackCardView(track, busy, onOpenTrack) }
+        item { SectionTitle("Недавнее") }
+        if (screen.snapshot.recent.isEmpty()) item { EmptyCard("Недавних треков пока нет.") }
+        items(screen.snapshot.recent) { track -> TrackCardView(track, busy, onOpenTrack) }
+        item { BottomActions(busy, onRefresh, onBack) }
+    }
+}
+
+@Composable
+private fun MixesScreen(
+    screen: AppScreen.Mixes,
+    busy: Boolean,
+    onRefresh: () -> Unit,
+    onOpenMix: (MixCard) -> Unit,
+    onBack: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { ScreenHeader("Миксы", "${screen.guild.name} • ${screen.snapshot.date}", busy, onBack) }
+        item { SectionTitle("Сегодня") }
+        if (screen.snapshot.today.isEmpty()) item { EmptyCard("На сегодня миксов пока нет.") }
+        items(screen.snapshot.today) { mix -> MixCardView(mix, busy, onOpenMix) }
+        item { SectionTitle("Для тебя") }
+        if (screen.snapshot.forYou.isEmpty()) item { EmptyCard("Персональные миксы ещё формируются.") }
+        items(screen.snapshot.forYou) { mix -> MixCardView(mix, busy, onOpenMix) }
+        item { SectionTitle("Темы") }
+        if (screen.snapshot.themes.isEmpty()) item { EmptyCard("Темы появятся после накопления сигналов вкуса.") }
+        items(screen.snapshot.themes) { theme ->
+            Card(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(theme.name ?: "Theme")
+                    Text("${(theme.affinity * 100).toInt()}%")
+                }
+            }
+        }
+        item { BottomActions(busy, onRefresh, onBack) }
+    }
+}
+
+@Composable
+private fun MixDetailScreen(
+    screen: AppScreen.Mix,
+    busy: Boolean,
+    onRefresh: () -> Unit,
+    onOpenTrack: (TrackPreview) -> Unit,
+    onBack: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { ScreenHeader(screen.detail.label, screen.guild.name, busy, onBack) }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    screen.detail.description?.let { Text(it) }
+                    Text("station: ${screen.detail.stationSlug}", style = MaterialTheme.typography.bodySmall)
+                    Text(if (screen.detail.available) "Доступен" else "Пока недоступен")
+                    if (screen.detail.daily) Text("Ежедневный микс", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+        item {
+            Text(
+                "Предпросмотр основы микса. Это не обещанная очередь воспроизведения.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        item { SectionTitle("Треки в основе") }
+        if (screen.detail.seedPreview.isEmpty()) item { EmptyCard("Для этого микса пока нет seed preview.") }
+        items(screen.detail.seedPreview) { track -> TrackCardView(track, busy, onOpenTrack) }
+        item { BottomActions(busy, onRefresh, onBack) }
+    }
+}
+
+@Composable
+private fun TrackDetailScreen(
+    screen: AppScreen.Track,
+    busy: Boolean,
+    onBack: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        ScreenHeader("Трек", screen.guild.name, busy, onBack)
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(screen.track.title ?: "Unknown track", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(screen.track.artist ?: "Unknown artist")
+                screen.track.stableKey?.let {
+                    Text("Track identity: $it", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        Text(
+            "В v0.2 это read-only карточка трека. Локальное воспроизведение появится в v0.3.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.weight(1f))
+        OutlinedButton(onClick = onBack, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Назад") }
+    }
+}
+
+@Composable
+private fun ScreenHeader(title: String, subtitle: String, busy: Boolean, onBack: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedButton(onClick = onBack, enabled = !busy) { Text("← Назад") }
+        Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(subtitle, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun BottomActions(busy: Boolean, onRefresh: () -> Unit, onBack: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onRefresh, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Обновить") }
+        OutlinedButton(onClick = onBack, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Назад") }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -219,15 +429,43 @@ private fun HomeSummary(home: HomeSnapshot) {
 }
 
 @Composable
-private fun SectionTitle(value: String) = Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+private fun SectionTitle(value: String) =
+    Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
 
 @Composable
-private fun MixCardView(mix: MixCard) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
+private fun MixCardView(mix: MixCard, busy: Boolean, onOpen: (MixCard) -> Unit) {
+    val canOpen = !busy && !mix.stationSlug.isNullOrBlank()
+    Card(
+        onClick = { onOpen(mix) },
+        enabled = canOpen,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(mix.label ?: mix.stationSlug ?: "Mix", fontWeight = FontWeight.SemiBold)
             mix.description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (!mix.available) Text("Пока недоступен", style = MaterialTheme.typography.labelSmall)
+            if (mix.daily) Text("Ежедневный", style = MaterialTheme.typography.labelSmall)
         }
+    }
+}
+
+@Composable
+private fun TrackCardView(track: TrackPreview, busy: Boolean, onOpen: (TrackPreview) -> Unit) {
+    Card(
+        onClick = { onOpen(track) },
+        enabled = !busy,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
+            Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun EmptyCard(message: String) {
+    Card(Modifier.fillMaxWidth()) {
+        Text(message, modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
     }
 }

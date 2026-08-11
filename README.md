@@ -1,28 +1,30 @@
 # Baskov Android
 
-First external client for Baskov Music.
+External Android client for Baskov Music.
 
-## v0.1.0 — Pairing, Auth, Guild Selection & Home
+## v0.2.0 — Library & Mixes
 
-The app intentionally does **not** implement playback yet. It proves the new multi-client architecture end-to-end:
+v0.2 extends the proven v0.1 pairing/auth/Home vertical slice with real read-only navigation backed by BaskovDiscordBot v1.31.0:
 
 ```text
 Discord /device pair
         ↓
-Android pairing
+Android encrypted device session
         ↓
-BaskovUser + encrypted device session
-        ↓
-GET /auth/me
-        ↓
-GET /guilds
-        ↓
-select guild
-        ↓
-GET /home
-        ↓
-Jetpack Compose UI
+Home
+ ├── Library
+ │    ├── Favorites
+ │    ├── History
+ │    └── Recent
+ ├── Mixes
+ │    ├── Today
+ │    ├── For You
+ │    └── Themes
+ └── Mix detail
+      └── seedPreview
 ```
+
+Tracks can be opened as read-only detail cards. Playback is intentionally deferred to v0.3.
 
 ### Implemented
 
@@ -30,24 +32,28 @@ Jetpack Compose UI
 - Pairing via `POST /api/v1/auth/device/pair`.
 - Access + refresh token persistence encrypted with Android Keystore AES/GCM.
 - Automatic refresh-token rotation on authenticated `401` and one retry.
-- `GET /api/v1/auth/me` account bootstrap.
-- `GET /api/v1/guilds` guild discovery.
+- Account bootstrap and guild discovery.
 - Persisted guild selection.
-- `GET /api/v1/home` personalized read model.
-- Home sections for Today, For You, themes, library stats, recent tracks and taste maturity.
-- Logout / local session cleanup.
-- Release builds reject cleartext API URLs; debug builds may use HTTP for local emulator development.
+- Personalized Home.
+- Library reads from `GET /api/v1/library` including favorites/history track lists.
+- Mix navigation from `GET /api/v1/mixes`.
+- Read-only mix detail from `GET /api/v1/mixes/{stationSlug}`.
+- `seedPreview` is presented only as station seed data, never as a promised playback queue.
+- Read-only track detail.
+- Manual and Android system back navigation for v0.2 screens.
+- Empty/error/loading behavior and explicit refresh actions.
+- Release builds reject cleartext API URLs; debug builds may use HTTP for local development.
 
 ### Intentionally absent
 
-- audio playback;
+- local audio playback;
 - Media3 / MediaSession;
-- background service;
+- background playback service;
 - remote Discord playback mutations;
 - favorites mutations;
 - mix start/stop controls.
 
-Those belong to later releases. BaskovDiscordBot v1.30.0 still reports `mutationsEnabled=false`.
+BaskovDiscordBot v1.31.0 still exposes this Android surface as authenticated read-only Product API.
 
 ## Build prerequisites
 
@@ -72,4 +78,4 @@ The gate runs `testDebugUnitTest`, `lintDebug` and `assembleDebug`.
 
 ## Backend
 
-The Android client requires BaskovDiscordBot `v1.30.0+` and its Product API behind HTTPS. Do not expose raw Spring port `18080` publicly.
+The v0.2 client requires BaskovDiscordBot `v1.31.0+` Product API behind HTTPS. Do not expose raw Spring port `18080` publicly.
