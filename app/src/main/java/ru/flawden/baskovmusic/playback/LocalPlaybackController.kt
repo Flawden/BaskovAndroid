@@ -191,7 +191,9 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = publish(error = null)
 
-    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = publish()    override fun onPlayerError(error: PlaybackException) {
+    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = publish()
+
+    override fun onPlayerError(error: PlaybackException) {
         publish(error = error.message ?: error.errorCodeName)
     }
 
@@ -287,7 +289,9 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
         val queue = (0 until connected.mediaItemCount).map { index ->
             connected.getMediaItemAt(index).toTrackPreview()
-        }        val currentIndex = connected.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
+        }
+
+        val currentIndex = connected.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
         val currentUri = connected.currentMediaItem?.localConfiguration?.uri?.toString()
         val streamOffsetMillis = PlaybackStreamUrl.startMillis(currentUri)
         val absolutePositionMillis = (
