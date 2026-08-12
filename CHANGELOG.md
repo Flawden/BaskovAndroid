@@ -1,4 +1,11 @@
 # Changelog
+## 0.11.1 — Repeat & Library UX Hotfix
+- Fixed remote Repeat ONE so a track repeats from 0:00 instead of the last server seek offset.
+- Added Repeat ALL end-of-queue recovery and explicit wraparound navigation.
+- Reset remote `startMillis` offsets when automatic/repeat transitions revisit a track.
+- Added “Снять все” for local library folders.
+- Made the folder list collapsible and collapsed by default.
+- Bumped Android app version to `0.11.1` / versionCode `12`.
 ## 0.11.0 — Library Control & Playback Modes
 - Added persistent local music folder filtering.
 - Added shuffle and repeat playback modes.

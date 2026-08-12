@@ -114,6 +114,12 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         setScreen(current.copy(folderFilterEnabled = false, selectedFolders = emptySet()))
     }
 
+    fun clearLocalFolders() {
+        val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return
+        localMusicSettings.saveSelection(enabled = true, selectedFolders = emptySet())
+        setScreen(current.copy(folderFilterEnabled = true, selectedFolders = emptySet()))
+    }
+
     fun playLocalTrack(track: LocalTrack) {
         val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return
         val queue = filteredLocalTracks(current)

@@ -149,7 +149,14 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
     fun next() {
         val connected = controller ?: return
-        val targetIndex = connected.nextMediaItemIndex
+        val nativeTarget = connected.nextMediaItemIndex
+        val targetIndex = if (nativeTarget in 0 until connected.mediaItemCount) {
+            nativeTarget
+        } else if (connected.repeatMode == Player.REPEAT_MODE_ALL) {
+            connected.currentTimeline.getFirstWindowIndex(connected.shuffleModeEnabled)
+        } else {
+            -1
+        }
         if (targetIndex in 0 until connected.mediaItemCount) {
             playFromStart(connected, targetIndex)
         }
@@ -162,7 +169,14 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             seekTo(0L)
             return
         }
-        val targetIndex = connected.previousMediaItemIndex
+        val nativeTarget = connected.previousMediaItemIndex
+        val targetIndex = if (nativeTarget in 0 until connected.mediaItemCount) {
+            nativeTarget
+        } else if (connected.repeatMode == Player.REPEAT_MODE_ALL) {
+            connected.currentTimeline.getLastWindowIndex(connected.shuffleModeEnabled)
+        } else {
+            -1
+        }
         if (targetIndex in 0 until connected.mediaItemCount) {
             playFromStart(connected, targetIndex)
         }
@@ -393,8 +407,10 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             resumable = false,
             shuffleEnabled = connected.shuffleModeEnabled,
             repeatMode = connected.repeatMode,
-            canGoPrevious = connected.hasPreviousMediaItem(),
-            canGoNext = connected.hasNextMediaItem(),
+            canGoPrevious = connected.hasPreviousMediaItem() ||
+                (connected.repeatMode == Player.REPEAT_MODE_ALL && connected.mediaItemCount > 0),
+            canGoNext = connected.hasNextMediaItem() ||
+                (connected.repeatMode == Player.REPEAT_MODE_ALL && connected.mediaItemCount > 0),
             error = error,
         )
     }

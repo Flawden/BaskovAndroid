@@ -181,6 +181,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         onRefresh = viewModel::refreshLocalMusic,
                         onToggleFolder = viewModel::toggleLocalFolder,
                         onUseAllFolders = viewModel::useAllLocalFolders,
+                        onClearFolders = viewModel::clearLocalFolders,
                         onPlay = viewModel::playLocalTrack,
                         onBack = viewModel::goBack,
                     )
@@ -397,10 +398,12 @@ private fun LocalMusicScreen(
     onRefresh: () -> Unit,
     onToggleFolder: (String) -> Unit,
     onUseAllFolders: () -> Unit,
+    onClearFolders: () -> Unit,
     onPlay: (LocalTrack) -> Unit,
     onBack: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var foldersExpanded by rememberSaveable { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> onPermissionResult(granted) }
@@ -478,34 +481,53 @@ private fun LocalMusicScreen(
                                 )
                             }
                             TextButton(
-                                onClick = onUseAllFolders,
-                                enabled = !busy && screen.folderFilterEnabled,
-                            ) { Text("Все") }
+                                onClick = { foldersExpanded = !foldersExpanded },
+                                enabled = screen.folders.isNotEmpty(),
+                            ) { Text(if (foldersExpanded) "Свернуть" else "Показать") }
                         }
-                        if (screen.folders.isEmpty()) {
-                            Text("MediaStore пока не сообщил ни одной папки.", style = MaterialTheme.typography.bodySmall)
-                        } else {
-                            screen.folders.forEach { folder ->
-                                val checked = !screen.folderFilterEnabled || folder.path in screen.selectedFolders
-                                Row(
-                                    Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Checkbox(
-                                        checked = checked,
-                                        onCheckedChange = { onToggleFolder(folder.path) },
-                                        enabled = !busy,
-                                    )
-                                    Column(Modifier.weight(1f)) {
-                                        Text(folder.label, style = MaterialTheme.typography.bodyMedium)
-                                        Text(
-                                            "${folder.trackCount} треков",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (foldersExpanded) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                TextButton(
+                                    onClick = onUseAllFolders,
+                                    enabled = !busy && screen.folders.isNotEmpty() && screen.folderFilterEnabled,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("Выбрать все") }
+                                TextButton(
+                                    onClick = onClearFolders,
+                                    enabled = !busy && screen.folders.isNotEmpty() && (!screen.folderFilterEnabled || screen.selectedFolders.isNotEmpty()),
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("Снять все") }
+                            }
+                            if (screen.folders.isEmpty()) {
+                                Text("MediaStore пока не сообщил ни одной папки.", style = MaterialTheme.typography.bodySmall)
+                            } else {
+                                screen.folders.forEach { folder ->
+                                    val checked = !screen.folderFilterEnabled || folder.path in screen.selectedFolders
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Checkbox(
+                                            checked = checked,
+                                            onCheckedChange = { onToggleFolder(folder.path) },
+                                            enabled = !busy,
                                         )
+                                        Column(Modifier.weight(1f)) {
+                                            Text(folder.label, style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                "${folder.trackCount} треков",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
                                     }
                                 }
                             }
+                        } else if (screen.folders.isEmpty()) {
+                            Text("MediaStore пока не сообщил ни одной папки.", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

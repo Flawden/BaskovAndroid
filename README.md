@@ -1,5 +1,11 @@
 # Baskov Android
 
+## v0.11.1 — Repeat & Library UX Hotfix
+
+Repeat handling now normalizes remote Baskov streams back to `startMillis=0` when a track is replayed automatically, so Repeat ONE no longer loops from the last seek point. Repeat ALL has an explicit end-of-queue/wraparound fallback while still respecting shuffle order.
+
+The local folder picker is collapsed by default and can be expanded on demand. It now offers both “Выбрать все” and “Снять все”, making large MediaStore libraries manageable on a phone.
+
 External Android client for Baskov Music.
 
 ## v0.11.0 — Library Control & Playback Modes

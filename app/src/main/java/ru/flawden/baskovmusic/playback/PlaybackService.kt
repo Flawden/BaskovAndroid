@@ -60,6 +60,7 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            normalizeRemoteRepeatOffset(reason)
             persistCurrentState()
         }
 
@@ -72,7 +73,63 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED) {
+                recoverRepeatAtEnd()
+            }
             persistCurrentState()
+        }
+    }
+
+    private var repeatRecoveryInProgress = false
+
+    private fun normalizeRemoteRepeatOffset(reason: Int) {
+        if (repeatRecoveryInProgress) return
+        if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
+            reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
+        ) {
+            return
+        }
+        val player = mediaSession?.player ?: return
+        val index = player.currentMediaItemIndex
+        if (index !in 0 until player.mediaItemCount) return
+        val uri = player.currentMediaItem?.localConfiguration?.uri?.toString() ?: return
+        if (!PlaybackStreamUrl.isRemoteHttp(uri) || PlaybackStreamUrl.startMillis(uri) <= 0L) return
+        restartQueueFromZero(player, index)
+    }
+
+    private fun recoverRepeatAtEnd() {
+        if (repeatRecoveryInProgress) return
+        val player = mediaSession?.player ?: return
+        if (player.mediaItemCount == 0) return
+        val targetIndex = when (player.repeatMode) {
+            Player.REPEAT_MODE_ONE -> player.currentMediaItemIndex
+            Player.REPEAT_MODE_ALL -> player.currentTimeline.getFirstWindowIndex(player.shuffleModeEnabled)
+            else -> return
+        }
+        if (targetIndex !in 0 until player.mediaItemCount) return
+        restartQueueFromZero(player, targetIndex)
+    }
+
+    private fun restartQueueFromZero(player: Player, targetIndex: Int) {
+        if (repeatRecoveryInProgress) return
+        repeatRecoveryInProgress = true
+        try {
+            val rebuilt = (0 until player.mediaItemCount).map { index ->
+                val item = player.getMediaItemAt(index)
+                val uri = item.localConfiguration?.uri?.toString()
+                if (uri == null || !PlaybackStreamUrl.isRemoteHttp(uri)) {
+                    item
+                } else {
+                    item.buildUpon()
+                        .setUri(PlaybackStreamUrl.withStartMillis(uri, 0L))
+                        .build()
+                }
+            }
+            player.setMediaItems(rebuilt, targetIndex, 0L)
+            player.prepare()
+            player.play()
+        } finally {
+            repeatRecoveryInProgress = false
         }
     }
 
@@ -253,7 +310,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.11.0")
+        .setUserAgent("BaskovAndroid/0.11.1")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")
