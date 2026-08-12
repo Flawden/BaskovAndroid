@@ -9,22 +9,29 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import ru.flawden.baskovmusic.model.PlaybackQueueSpec
 import ru.flawden.baskovmusic.model.TrackPreview
 
 /**
- * UI-side controller for the v0.4 MediaSessionService.
+ * UI-side controller for the system MediaSessionService.
  *
- * The Activity/ViewModel no longer owns ExoPlayer. It owns only a MediaController connection,
- * which means leaving the Activity does not tear playback down. The system session is the single
- * source of truth for notification, lock-screen, headset/Bluetooth and in-app controls.
+ * v0.5 can also surface a persisted playback snapshot when the process was recreated. The snapshot
+ * is display-only until the user presses Play; that command triggers Media3 onPlaybackResumption,
+ * where PlaybackService recovers a fresh Bearer token before preparing the restored queue.
  */
 class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable {
     private val appContext = context.applicationContext
     private val mutableState = MutableStateFlow(LocalPlaybackUiState(connecting = true))
+    private val playbackStateStore = PlaybackStateStore(appContext)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val sessionToken = SessionToken(
         appContext,
         ComponentName(appContext, PlaybackService::class.java),
@@ -49,7 +56,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                         pendingPlay?.let { pending ->
                             pendingPlay = null
                             playNow(connected, pending.spec, pending.startIndex)
-                        }
+                        } ?: loadResumableSnapshot(connected)
                     }
                     .onFailure { error ->
                         mutableState.value = mutableState.value.copy(
@@ -65,6 +72,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
     fun play(spec: PlaybackQueueSpec, startIndex: Int) {
         require(spec.items.isNotEmpty()) { "Playback queue is empty" }
         PlaybackAuthBridge.update(spec.bearerToken)
+        mutableState.value = mutableState.value.copy(resumable = false, error = null)
         val connected = controller
         if (connected == null) {
             pendingPlay = PendingPlay(spec, startIndex)
@@ -76,7 +84,13 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
     fun togglePlayPause() {
         val connected = controller ?: return
-        if (connected.mediaItemCount == 0) return
+        if (connected.mediaItemCount == 0) {
+            if (mutableState.value.resumable) {
+                mutableState.value = mutableState.value.copy(connecting = true, error = null)
+                connected.play()
+            }
+            return
+        }
         if (connected.isPlaying) connected.pause() else connected.play()
         publish()
     }
@@ -109,6 +123,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             stop()
             clearMediaItems()
         }
+        playbackStateStore.clear()
         PlaybackAuthBridge.clear()
         mutableState.value = LocalPlaybackUiState(connecting = controller == null)
     }
@@ -150,10 +165,47 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         publish(error = null)
     }
 
+    private fun loadResumableSnapshot(connected: MediaController) {
+        scope.launch(Dispatchers.IO) snapshotLoad@ {
+            val snapshot = playbackStateStore.load() ?: return@snapshotLoad
+            launch(Dispatchers.Main.immediate) publishSnapshot@ {
+                if (closed || controller !== connected || connected.mediaItemCount != 0) {
+                    return@publishSnapshot
+                }
+                val queue = snapshot.items.map { item ->
+                    TrackPreview(
+                        stableKey = item.mediaId.takeIf(String::isNotBlank),
+                        title = item.title,
+                        artist = item.artist,
+                    )
+                }
+                mutableState.value = LocalPlaybackUiState(
+                    queue = queue,
+                    currentIndex = snapshot.currentIndex.coerceIn(queue.indices),
+                    isPlaying = false,
+                    buffering = false,
+                    connecting = false,
+                    resumable = true,
+                    error = null,
+                )
+            }
+        }
+    }
+
     private fun publish(error: String? = mutableState.value.error) {
         val connected = controller
         if (connected == null) {
             mutableState.value = mutableState.value.copy(connecting = true, error = error)
+            return
+        }
+
+        if (connected.mediaItemCount == 0 && mutableState.value.resumable) {
+            mutableState.value = mutableState.value.copy(
+                isPlaying = false,
+                buffering = connected.playbackState == Player.STATE_BUFFERING,
+                connecting = false,
+                error = error,
+            )
             return
         }
 
@@ -168,6 +220,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             isPlaying = connected.isPlaying,
             buffering = connected.playbackState == Player.STATE_BUFFERING,
             connecting = false,
+            resumable = false,
             error = error,
         )
     }
@@ -178,6 +231,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         pendingPlay = null
         controller?.removeListener(this)
         controller = null
+        scope.cancel()
         MediaController.releaseFuture(controllerFuture)
     }
 
@@ -199,14 +253,15 @@ data class LocalPlaybackUiState(
     val isPlaying: Boolean = false,
     val buffering: Boolean = false,
     val connecting: Boolean = false,
+    val resumable: Boolean = false,
     val error: String? = null,
 ) {
     val current: TrackPreview?
         get() = queue.getOrNull(currentIndex)
 
     val hasPrevious: Boolean
-        get() = currentIndex > 0
+        get() = !resumable && currentIndex > 0
 
     val hasNext: Boolean
-        get() = currentIndex >= 0 && currentIndex < queue.lastIndex
+        get() = !resumable && currentIndex >= 0 && currentIndex < queue.lastIndex
 }

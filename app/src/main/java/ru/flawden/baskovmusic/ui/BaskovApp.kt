@@ -527,6 +527,7 @@ private fun MiniPlayer(
                     if (playback.connecting) append(" • подключение…")
                     else if (playback.buffering) append(" • загрузка…")
                     else if (playback.isPlaying) append(" • играет")
+                    else if (playback.resumable) append(" • можно восстановить")
                     else append(" • пауза")
                 },
                 style = MaterialTheme.typography.bodySmall,

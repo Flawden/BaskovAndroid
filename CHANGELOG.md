@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 — Playback Resilience & Recovery
+
+- Added durable provider-neutral playback snapshots for queue, current item, approximate position and play intent.
+- Added Media3 playback resumption so a recreated service can rebuild the saved queue after process death; the current track restarts from its beginning because Product API v1.32 streams are intentionally non-seekable.
+- Added a resumable mini-player state: process recreation never silently auto-plays; the user explicitly presses Play to resume.
+- Added Media3 `MediaButtonReceiver` for headset/Bluetooth media-button service restart and resumption.
+- Added encrypted-session auth rehydration before restored stream URLs are prepared.
+- Centralized access-token refresh rotation behind a shared process-wide coordinator used by both the UI repository and PlaybackService.
+- Added proactive access-token refresh before playback and during long-running active queues.
+- Kept Bearer tokens out of persisted playback snapshots and media item URIs.
+- Explicit Stop, guild switch and logout continue to clear playback and now also clear resumable state.
+- Added playback snapshot codec unit tests.
+- Added `kotlinx-coroutines-guava` for asynchronous Media3 resumption.
+- Bumped Android app version to `0.5.0` / versionCode `5`.
+
 ## 0.4.0 — System Playback & Background Experience
 
 - Moved ExoPlayer ownership from the Activity/ViewModel into a Media3 `MediaSessionService`.

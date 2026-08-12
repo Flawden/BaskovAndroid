@@ -146,9 +146,14 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun bootstrap() = viewModelScope.launch {
         runCatching {
-            if (repository.hasSession()) loadAuthenticatedState()
-            else setScreen(AppScreen.Pairing(repository.savedBaseUrl().orEmpty()))
+            if (repository.hasSession()) {
+                loadAuthenticatedState()
+            } else {
+                playback.stop()
+                setScreen(AppScreen.Pairing(repository.savedBaseUrl().orEmpty()))
+            }
         }.onFailure {
+            playback.stop()
             repository.logout()
             backStack.clear()
             mutableState.value = AppUiState(

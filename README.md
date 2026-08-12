@@ -2,49 +2,45 @@
 
 External Android client for Baskov Music.
 
-## v0.4.0 — System Playback & Background Experience
+## v0.5.0 — Playback Resilience & Recovery
 
-v0.4 moves playback ownership out of the Activity/ViewModel and into a Media3 `MediaSessionService`:
+v0.5 hardens the v0.4 system player against process recreation and long-running background sessions:
 
 ```text
 Compose UI
    ↓ MediaController
 MediaSessionService
+   ├─ durable queue / position snapshot
+   ├─ playback resumption callback
+   ├─ process-local Bearer bridge
+   └─ encrypted SessionStore → token refresh rotation
    ↓
-MediaSession
-   ↓
-ExoPlayer
-   ↓ authenticated HTTPS
-Baskov Product API v1.32+
+MediaSession → ExoPlayer → authenticated HTTPS → Baskov Product API v1.32+
 ```
 
 ### Implemented
 
-- everything from v0.3: pairing, encrypted device session, guild selection, Home, Library, Mixes and real phone playback;
-- background playback through `MediaSessionService`;
-- automatic Media3 foreground media notification;
-- Android system media controls and lock-screen controls;
-- headset/Bluetooth/system transport commands through the MediaSession;
-- automatic ExoPlayer audio-focus handling for media playback;
-- automatic pause when an audio output becomes noisy, for example after headphones are disconnected;
-- in-app mini-player now controls the same system playback session through `MediaController`;
-- playback remains alive when the Activity is backgrounded or removed from recents while audio is active;
-- reopening the UI reconnects to the existing MediaSession and reconstructs the current queue/state;
-- provider selection remains entirely on BaskovDiscordBot; Android still consumes only authenticated Ogg/Opus stream URLs.
+- everything from v0.4: MediaSessionService background playback, notification, lock-screen and headset/Bluetooth controls;
+- persists the provider-neutral playback queue, current item and approximate position while playback is active;
+- restores a resumable mini-player after the app process is recreated without silently auto-playing audio;
+- pressing Play on a resumable session invokes Media3 playback resumption and rebuilds the saved queue;
+- declares Media3 `MediaButtonReceiver` so headset/Bluetooth media-button resumption can restart the service lifecycle;
+- recovers the Bearer token from the encrypted device session before preparing restored stream URLs;
+- centralizes access-token refresh rotation behind one process-wide mutex so UI API traffic and background playback cannot race the same rotating refresh token;
+- proactively refreshes access tokens that are too close to expiry before starting a queue and while a playback queue remains active;
+- keeps Bearer credentials out of persisted playback state and out of media item URIs;
+- explicit Stop, guild switch and logout clear the resumable playback snapshot;
+- adds codec tests for playback snapshot round-tripping and malformed-state rejection;
+- bumps Android app version to `0.5.0` / versionCode `5`.
 
-### Security and lifecycle
+### Recovery semantics
 
-- persistent device tokens remain encrypted by `SessionStore` + Android Keystore;
-- the current playback access token is copied only into process memory after the repository validates/rotates it for a queue;
-- media item URIs do not contain the Bearer token;
-- changing guild or logging out explicitly stops playback and clears the in-process playback token;
-- the service is declared only as a `mediaPlayback` foreground service.
+A killed/recreated process does not start audio by itself. The UI surfaces the saved track as `можно восстановить`; pressing Play resumes through the MediaSession callback. Queue and current-item identity are restored. Product API v1.32 streams are intentionally non-seekable (`Accept-Ranges: none`), so the recovered current track restarts from its beginning; the checkpointed position is retained only as future-ready state until backend range/seek support exists.
 
 ### Intentionally absent
 
-- cold process-death playback resumption after Android kills the whole app process;
-- access-token refresh while a very long already-running queue outlives its current access token;
-- Android Auto browse tree / `MediaLibraryService`;
+- System UI post-reboot resume carousel / Android Auto browse tree (`MediaLibraryService` is a later product step);
+- automatic retry of a stream after server-side session revocation during the already-open HTTP request;
 - Cast;
 - seek/range UI;
 - remote Discord playback mutations;
@@ -57,6 +53,7 @@ Baskov Product API v1.32+
 - Gradle 8.13
 - Android Gradle Plugin 8.13.0
 - AndroidX Media3 1.8.0 (`media3-exoplayer` + `media3-session`)
+- Kotlin coroutines 1.10.2 (`android` + `guava` bridge for Media3 async resumption)
 
 This source bundle does not contain a generated `gradle-wrapper.jar`. The bootstrap script uses an installed Gradle 8.13 when available, otherwise downloads the official Gradle 8.13 distribution and generates the wrapper:
 
@@ -74,4 +71,4 @@ The gate runs `testDebugUnitTest`, `lintDebug` and `assembleDebug`.
 
 ## Backend
 
-The v0.4 client requires BaskovDiscordBot `v1.32.0+` Product API behind HTTPS. Do not expose raw Spring port `18080` publicly.
+The v0.5 client requires BaskovDiscordBot `v1.32.0+` Product API behind HTTPS. No backend release is required for v0.5. Do not expose raw Spring port `18080` publicly.
