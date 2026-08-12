@@ -193,7 +193,7 @@ internal object PlaybackAuthBridge {
 private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
     override fun createDataSource(): DataSource {
         val source = DefaultHttpDataSource.Factory()
-            .setUserAgent("BaskovAndroid/0.5.0")
+            .setUserAgent("BaskovAndroid/0.6.0")
             .createDataSource()
 
         source.setRequestProperty("Accept", "audio/ogg")

@@ -117,6 +117,8 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     fun togglePlayback() = playback.togglePlayPause()
     fun nextTrack() = playback.next()
     fun previousTrack() = playback.previous()
+    fun playQueueItem(index: Int) = playback.playQueueItem(index)
+    fun removeQueueItem(index: Int) = playback.removeQueueItem(index)
     fun stopPlayback() = playback.stop()
     fun clearPlaybackError() = playback.clearError()
 

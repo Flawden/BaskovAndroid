@@ -26,6 +26,8 @@ import ru.flawden.baskovmusic.model.TrackPreview
  * v0.5 can also surface a persisted playback snapshot when the process was recreated. The snapshot
  * is display-only until the user presses Play; that command triggers Media3 onPlaybackResumption,
  * where PlaybackService recovers a fresh Bearer token before preparing the restored queue.
+ * v0.6 exposes safe queue navigation/removal commands for the full Now Playing surface while the
+ * MediaSession remains the single source of truth for both UI and system playback controls.
  */
 class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable {
     private val appContext = context.applicationContext
@@ -115,6 +117,25 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             }
         }
         publish()
+    }
+
+    fun playQueueItem(index: Int) {
+        val connected = controller ?: return
+        if (mutableState.value.resumable || index !in 0 until connected.mediaItemCount) return
+        connected.seekToDefaultPosition(index)
+        connected.play()
+        publish(error = null)
+    }
+
+    fun removeQueueItem(index: Int) {
+        val connected = controller ?: return
+        if (mutableState.value.resumable || index !in 0 until connected.mediaItemCount) return
+        if (connected.mediaItemCount == 1) {
+            stop()
+            return
+        }
+        connected.removeMediaItem(index)
+        publish(error = null)
     }
 
     fun stop() {

@@ -1,4 +1,14 @@
 # Changelog
+## 0.6.0 — Now Playing & Queue Experience
+- Added a full-screen Now Playing surface opened directly from the persistent mini-player.
+- Added visible playback queue with current-track highlighting and queue position.
+- Added direct jump-to-track controls backed by the existing MediaSession queue.
+- Added queue item removal without rebuilding the queue or bypassing system playback ownership.
+- Kept resumable post-process-death snapshots read-only until Media3 playback resumption hydrates the live queue.
+- Preserved background, lock-screen, notification, headset/Bluetooth and process-recovery behavior from v0.5.
+- Kept seek/progress controls intentionally absent while Product API v1.32 streams remain non-seekable.
+- Updated the playback HTTP user agent to `BaskovAndroid/0.6.0`.
+- Bumped Android app version to `0.6.0` / versionCode `6`.
 
 ## 0.5.0 — Playback Resilience & Recovery
 

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -30,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +49,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    var showNowPlaying by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -59,6 +62,9 @@ fun BaskovApp(viewModel: BaskovViewModel) {
             snackbar.showSnackbar("Playback: $it")
             viewModel.clearPlaybackError()
         }
+    }
+    LaunchedEffect(playback.current) {
+        if (playback.current == null) showNowPlaying = false
     }
 
     val supportsBack = when (state.screen) {
@@ -74,16 +80,20 @@ fun BaskovApp(viewModel: BaskovViewModel) {
         is AppScreen.Home,
         -> false
     }
-    BackHandler(enabled = supportsBack && !state.busy) { viewModel.goBack() }
+    BackHandler(enabled = showNowPlaying) { showNowPlaying = false }
+    BackHandler(enabled = !showNowPlaying && supportsBack && !state.busy) { viewModel.goBack() }
 
     MaterialTheme {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
-            topBar = { TopAppBar(title = { Text("Baskov Music") }) },
+            topBar = {
+                TopAppBar(title = { Text(if (showNowPlaying) "Сейчас играет" else "Baskov Music") })
+            },
             bottomBar = {
-                if (playback.current != null) {
+                if (playback.current != null && !showNowPlaying) {
                     MiniPlayer(
                         playback = playback,
+                        onOpen = { showNowPlaying = true },
                         onToggle = viewModel::togglePlayback,
                         onPrevious = viewModel::previousTrack,
                         onNext = viewModel::nextTrack,
@@ -96,7 +106,18 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center,
             ) {
-                when (val screen = state.screen) {
+                if (showNowPlaying && playback.current != null) {
+                    NowPlayingScreen(
+                        playback = playback,
+                        onClose = { showNowPlaying = false },
+                        onToggle = viewModel::togglePlayback,
+                        onPrevious = viewModel::previousTrack,
+                        onNext = viewModel::nextTrack,
+                        onPlayQueueItem = viewModel::playQueueItem,
+                        onRemoveQueueItem = viewModel::removeQueueItem,
+                        onStop = viewModel::stopPlayback,
+                    )
+                } else when (val screen = state.screen) {
                     AppScreen.Loading -> CircularProgressIndicator()
                     is AppScreen.Pairing -> PairingScreen(screen.savedBaseUrl, state.busy, viewModel::pair)
                     is AppScreen.GuildPicker -> GuildPickerScreen(
@@ -422,7 +443,7 @@ private fun TrackDetailScreen(
             modifier = Modifier.fillMaxWidth(),
         ) { Text("▶ Играть на телефоне") }
         Text(
-            "v0.4 играет через системную MediaSession, а provider/source по-прежнему выбирает Baskov backend.",
+            "Системная MediaSession управляет playback, а provider/source по-прежнему выбирает Baskov backend.",
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(Modifier.weight(1f))
@@ -512,24 +533,21 @@ private fun TrackCardView(
 @Composable
 private fun MiniPlayer(
     playback: LocalPlaybackUiState,
+    onOpen: () -> Unit,
     onToggle: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onStop: () -> Unit,
 ) {
     val track = playback.current ?: return
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+    Card(
+        onClick = onOpen,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+    ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
             Text(
-                buildString {
-                    append(track.artist ?: "Unknown artist")
-                    if (playback.connecting) append(" • подключение…")
-                    else if (playback.buffering) append(" • загрузка…")
-                    else if (playback.isPlaying) append(" • играет")
-                    else if (playback.resumable) append(" • можно восстановить")
-                    else append(" • пауза")
-                },
+                "${track.artist ?: "Unknown artist"} • ${playbackStatus(playback)}",
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -538,8 +556,137 @@ private fun MiniPlayer(
                 TextButton(onClick = onNext, enabled = playback.hasNext) { Text("⏭") }
                 TextButton(onClick = onStop) { Text("⏹") }
             }
+            Text(
+                "Нажми на плеер, чтобы открыть Now Playing и очередь.",
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
+}
+
+@Composable
+private fun NowPlayingScreen(
+    playback: LocalPlaybackUiState,
+    onClose: () -> Unit,
+    onToggle: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onPlayQueueItem: (Int) -> Unit,
+    onRemoveQueueItem: (Int) -> Unit,
+    onStop: () -> Unit,
+) {
+    val track = playback.current ?: return
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            OutlinedButton(onClick = onClose) { Text("← Назад") }
+        }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        track.title ?: "Unknown track",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Трек ${playback.currentIndex + 1} из ${playback.queue.size} • ${playbackStatus(playback)}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (playback.resumable) {
+                        Text(
+                            "Сохранённая сессия готова к восстановлению. Play поднимет очередь через Media3.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text(
+                            "Перемотка пока недоступна: Product API v1.32 отдаёт non-seekable Ogg/Opus stream.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                TextButton(onClick = onPrevious, enabled = playback.hasPrevious) { Text("⏮") }
+                Button(onClick = onToggle, enabled = !playback.connecting) {
+                    Text(if (playback.isPlaying) "⏸ Пауза" else "▶ Играть")
+                }
+                TextButton(onClick = onNext, enabled = playback.hasNext) { Text("⏭") }
+                TextButton(onClick = onStop) { Text("⏹") }
+            }
+        }
+        item { SectionTitle("Очередь") }
+        itemsIndexed(
+            playback.queue,
+            key = { index, item -> item.stableKey ?: "${item.artist.orEmpty()}::${item.title.orEmpty()}::$index" },
+        ) { index, item ->
+            QueueTrackCard(
+                track = item,
+                index = index,
+                isCurrent = index == playback.currentIndex,
+                queueSize = playback.queue.size,
+                queueEditable = !playback.resumable && !playback.connecting,
+                onPlay = onPlayQueueItem,
+                onRemove = onRemoveQueueItem,
+            )
+        }
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun QueueTrackCard(
+    track: TrackPreview,
+    index: Int,
+    isCurrent: Boolean,
+    queueSize: Int,
+    queueEditable: Boolean,
+    onPlay: (Int) -> Unit,
+    onRemove: (Int) -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                "${index + 1}. ${track.title ?: "Unknown track"}",
+                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
+            )
+            Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
+            if (isCurrent) {
+                Text("Сейчас играет", style = MaterialTheme.typography.labelMedium)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = { onPlay(index) },
+                    enabled = queueEditable && !isCurrent,
+                    modifier = Modifier.weight(1f),
+                ) { Text(if (isCurrent) "Текущий" else "Играть") }
+                TextButton(
+                    onClick = { onRemove(index) },
+                    enabled = queueEditable && queueSize > 1,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Убрать") }
+            }
+        }
+    }
+}
+
+private fun playbackStatus(playback: LocalPlaybackUiState): String = when {
+    playback.connecting -> "подключение…"
+    playback.buffering -> "загрузка…"
+    playback.isPlaying -> "играет"
+    playback.resumable -> "можно восстановить"
+    else -> "пауза"
 }
 
 @Composable
