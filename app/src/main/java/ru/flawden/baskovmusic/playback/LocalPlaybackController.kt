@@ -312,6 +312,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                 absolutePositionMillis
             },
             durationMillis = durationMillis,
+            artworkUrl = connected.currentMediaItem?.mediaMetadata?.artworkUri?.toString(),
             isPlaying = connected.isPlaying,
             buffering = connected.playbackState == Player.STATE_BUFFERING,
             connecting = false,
@@ -347,6 +348,7 @@ data class LocalPlaybackUiState(
     val currentIndex: Int = -1,
     val positionMillis: Long = 0L,
     val durationMillis: Long = 0L,
+    val artworkUrl: String? = null,
     val isPlaying: Boolean = false,
     val buffering: Boolean = false,
     val connecting: Boolean = false,

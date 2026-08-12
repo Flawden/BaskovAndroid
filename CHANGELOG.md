@@ -1,4 +1,13 @@
 # Changelog
+## 0.9.0 — Artwork & Player Experience
+- Consumed BaskovDiscordBot v1.34 `X-Baskov-Playback-Artwork-Url` metadata from the resolved playback stream.
+- Added Coil 3.5.0 Compose/OkHttp image loading for track artwork.
+- Show real artwork in Now Playing and Mini Player with the neon Baskov mascot as fallback.
+- Propagated artwork into Media3 `MediaMetadata.artworkUri` for system media surfaces.
+- Preserved active playback during metadata-only MediaItem updates.
+- Kept zero-config pairing, server seek, progress, queue editing and recovery unchanged.
+- Updated playback HTTP user agent to `BaskovAndroid/0.9.0`.
+- Bumped Android app version to `0.9.0` / versionCode `9`.
 ## 0.8.0 — Zero Config & Visual Identity
 - Polished the compact Now Playing transport row for narrow phones: ±15 second controls stay circular and never wrap.
 - Embedded the production Baskov Product API base URL in generated `BuildConfig`.

@@ -14,8 +14,8 @@ android {
         applicationId = "ru.flawden.baskovmusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.8.0"
+        versionCode = 9
+        versionName = "0.9.0"
         buildConfigField(
             "String",
             "BASKOV_API_BASE_URL",
@@ -75,6 +75,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.10.2")
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     implementation("androidx.media3:media3-session:1.8.0")
+    implementation("io.coil-kt.coil3:coil-compose:3.5.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.5.0")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")

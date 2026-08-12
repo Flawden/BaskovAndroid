@@ -2,6 +2,12 @@
 
 External Android client for Baskov Music.
 
+## v0.9.0 — Artwork & Player Experience
+
+BaskovAndroid v0.9 consumes artwork metadata from BaskovDiscordBot v1.34. Real artwork is loaded with Coil and propagated into Media3 metadata for the app and system media surfaces. If artwork is absent or fails to load, the official neon Baskov mascot remains the fallback.
+
+All v0.8 behavior remains: zero-config pairing, server-accurate seek, live progress, ±15 controls, queue editing, background/system playback and absolute-position recovery.
+
 ## v0.8.0 — Zero Config & Visual Identity
 
 v0.8 turns the working v0.7 player into a product-facing Baskov Android experience.

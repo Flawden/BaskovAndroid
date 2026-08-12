@@ -1,5 +1,6 @@
 package ru.flawden.baskovmusic.playback
 
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -56,6 +57,22 @@ internal object PlaybackStreamUrl {
             }
             append(fragment)
         }
+    }
+}
+
+internal object PlaybackArtworkUrl {
+    fun normalize(value: String?): String? {
+        if (value.isNullOrBlank()) return null
+        return runCatching {
+            val uri = URI.create(value.trim())
+            val scheme = uri.scheme
+            require(
+                scheme.equals("http", ignoreCase = true) ||
+                    scheme.equals("https", ignoreCase = true),
+            )
+            require(!uri.host.isNullOrBlank())
+            uri.toASCIIString()
+        }.getOrNull()
     }
 }
 

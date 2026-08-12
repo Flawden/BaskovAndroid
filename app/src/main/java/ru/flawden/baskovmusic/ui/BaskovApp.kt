@@ -1,7 +1,6 @@
 package ru.flawden.baskovmusic.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
 import ru.flawden.baskovmusic.R
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.MixCard
@@ -558,11 +558,27 @@ private fun MiniPlayer(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
-            Text(
-                "${track.artist ?: "Unknown artist"} • ${formatPlaybackTime(playback.positionMillis)} • ${playbackStatus(playback)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                AsyncImage(
+                    model = playback.artworkUrl,
+                    contentDescription = null,
+                    fallback = painterResource(R.drawable.ic_launcher_foreground),
+                    error = painterResource(R.drawable.ic_launcher_foreground),
+                    modifier = Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop,
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${track.artist ?: "Unknown artist"} • ${formatPlaybackTime(playback.positionMillis)} • ${playbackStatus(playback)}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 TextButton(onClick = onPrevious, enabled = playback.hasPrevious) { Text("⏮") }
                 TextButton(onClick = onToggle) { Text(if (playback.isPlaying) "⏸" else "▶") }
@@ -625,11 +641,13 @@ private fun NowPlayingScreen(
                     .border(1.dp, BaskovCyan.copy(alpha = 0.45f), RoundedCornerShape(32.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_launcher_foreground),
-                    contentDescription = "Baskov",
-                    modifier = Modifier.size(238.dp),
-                    contentScale = ContentScale.Fit,
+                AsyncImage(
+                    model = playback.artworkUrl,
+                    contentDescription = "${track.title ?: "Track"} artwork",
+                    fallback = painterResource(R.drawable.ic_launcher_foreground),
+                    error = painterResource(R.drawable.ic_launcher_foreground),
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = if (playback.artworkUrl == null) ContentScale.Fit else ContentScale.Crop,
                 )
             }
         }

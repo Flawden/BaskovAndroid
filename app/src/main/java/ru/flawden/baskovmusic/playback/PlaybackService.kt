@@ -99,6 +99,11 @@ class PlaybackService : MediaSessionService() {
             .setCallback(PlaybackSessionCallback())
             .build()
 
+        PlaybackArtworkBridge.listener = { streamUrl, artworkUrl ->
+            serviceScope.launch(Dispatchers.Main.immediate) {
+                applyArtwork(player, streamUrl, artworkUrl)
+            }
+        }
         snapshotJob = serviceScope.launch {
             while (isActive) {
                 delay(SNAPSHOT_INTERVAL_MILLIS)
@@ -136,6 +141,7 @@ class PlaybackService : MediaSessionService() {
         }
         mediaSession = null
         hasPlaybackQueue = false
+        PlaybackArtworkBridge.listener = null
         PlaybackAuthBridge.clear()
         serviceScope.cancel()
         super.onDestroy()
@@ -145,6 +151,25 @@ class PlaybackService : MediaSessionService() {
         val player = mediaSession?.player ?: return
         hasPlaybackQueue = player.mediaItemCount > 0 && player.playbackState != Player.STATE_ENDED
         stateStore.save(player)
+    }
+
+
+    private fun applyArtwork(player: Player, streamUrl: String, artworkUrl: String) {
+        val streamKey = PlaybackStreamUrl.baseKey(streamUrl)
+        for (index in 0 until player.mediaItemCount) {
+            val item = player.getMediaItemAt(index)
+            val itemUrl = item.localConfiguration?.uri?.toString() ?: continue
+            if (PlaybackStreamUrl.baseKey(itemUrl) != streamKey) continue
+            if (item.mediaMetadata.artworkUri?.toString() == artworkUrl) continue
+
+            val metadata = item.mediaMetadata.buildUpon()
+                .setArtworkUri(Uri.parse(artworkUrl))
+                .build()
+            player.replaceMediaItem(
+                index,
+                item.buildUpon().setMediaMetadata(metadata).build(),
+            )
+        }
     }
 
     private inner class PlaybackSessionCallback : MediaSession.Callback {
@@ -177,6 +202,15 @@ class PlaybackService : MediaSessionService() {
  * Keeps the short-lived access token in process memory only. Durable access/refresh credentials
  * remain encrypted by SessionStore/Android Keystore and can be rehydrated after process death.
  */
+internal object PlaybackArtworkBridge {
+    @Volatile
+    var listener: ((streamUrl: String, artworkUrl: String) -> Unit)? = null
+
+    fun publish(streamUrl: String, artworkUrl: String) {
+        listener?.invoke(streamUrl, artworkUrl)
+    }
+}
+
 internal object PlaybackAuthBridge {
     @Volatile
     private var bearerToken: String? = null
@@ -200,7 +234,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.8.0")
+        .setUserAgent("BaskovAndroid/0.9.0")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")
@@ -220,6 +254,12 @@ private class BaskovAuthenticatedDataSource : DataSource {
             ?.toLongOrNull()
             ?.let { duration ->
                 PlaybackStreamMetrics.recordDuration(dataSpec.uri.toString(), duration)
+            }
+        source.responseHeaders["X-Baskov-Playback-Artwork-Url"]
+            ?.firstOrNull()
+            ?.let(PlaybackArtworkUrl::normalize)
+            ?.let { artworkUrl ->
+                PlaybackArtworkBridge.publish(dataSpec.uri.toString(), artworkUrl)
             }
         return openedLength
     }
