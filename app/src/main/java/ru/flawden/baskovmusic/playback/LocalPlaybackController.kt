@@ -11,8 +11,11 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +45,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
     private var controller: MediaController? = null
     private var pendingPlay: PendingPlay? = null
+    private var progressJob: Job? = null
     private var closed = false
 
     val state: StateFlow<LocalPlaybackUiState> = mutableState.asStateFlow()
@@ -54,6 +58,13 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                     .onSuccess { connected ->
                         controller = connected
                         connected.addListener(this)
+                        progressJob?.cancel()
+                        progressJob = scope.launch {
+                            while (isActive && !closed && controller === connected) {
+                                delay(PROGRESS_INTERVAL_MILLIS)
+                                if (connected.mediaItemCount > 0) publish()
+                            }
+                        }
                         publish(error = null)
                         pendingPlay?.let { pending ->
                             pendingPlay = null
@@ -95,26 +106,24 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         }
         if (connected.isPlaying) connected.pause() else connected.play()
         publish()
-    }
-
-    fun next() {
-        controller?.let { connected ->
-            if (connected.hasNextMediaItem()) {
-                connected.seekToNextMediaItem()
-                connected.play()
-            }
+    }    fun next() {
+        val connected = controller ?: return
+        val targetIndex = connected.currentMediaItemIndex + 1
+        if (targetIndex in 0 until connected.mediaItemCount) {
+            restartQueueAt(connected, targetIndex, 0L, playWhenReady = true)
         }
         publish()
     }
 
     fun previous() {
-        controller?.let { connected ->
-            if (connected.hasPreviousMediaItem()) {
-                connected.seekToPreviousMediaItem()
-                connected.play()
-            } else if (connected.currentPosition > 3_000L) {
-                connected.seekTo(0L)
-            }
+        val connected = controller ?: return
+        if (mutableState.value.positionMillis > 3_000L) {
+            seekTo(0L)
+            return
+        }
+        val targetIndex = connected.currentMediaItemIndex - 1
+        if (targetIndex in 0 until connected.mediaItemCount) {
+            restartQueueAt(connected, targetIndex, 0L, playWhenReady = true)
         }
         publish()
     }
@@ -122,10 +131,33 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
     fun playQueueItem(index: Int) {
         val connected = controller ?: return
         if (mutableState.value.resumable || index !in 0 until connected.mediaItemCount) return
-        connected.seekToDefaultPosition(index)
-        connected.play()
+        restartQueueAt(connected, index, 0L, playWhenReady = true)
         publish(error = null)
     }
+
+    fun seekTo(positionMillis: Long) {
+        val connected = controller ?: return
+        val state = mutableState.value
+        if (state.resumable || connected.mediaItemCount == 0) return
+
+        val index = connected.currentMediaItemIndex
+        if (index !in 0 until connected.mediaItemCount) return
+
+        val target = if (state.durationMillis > 0L) {
+            positionMillis.coerceIn(0L, (state.durationMillis - 1L).coerceAtLeast(0L))
+        } else {
+            positionMillis.coerceAtLeast(0L)
+        }
+        restartQueueAt(
+            connected = connected,
+            index = index,
+            startMillis = target,
+            playWhenReady = connected.playWhenReady,
+        )
+        publish(error = null)
+    }
+
+    fun seekBy(deltaMillis: Long) = seekTo(mutableState.value.positionMillis + deltaMillis)
 
     fun removeQueueItem(index: Int) {
         val connected = controller ?: return
@@ -159,10 +191,31 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = publish(error = null)
 
-    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = publish()
-
-    override fun onPlayerError(error: PlaybackException) {
+    override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = publish()    override fun onPlayerError(error: PlaybackException) {
         publish(error = error.message ?: error.errorCodeName)
+    }
+
+    private fun restartQueueAt(
+        connected: MediaController,
+        index: Int,
+        startMillis: Long,
+        playWhenReady: Boolean,
+    ) {
+        val rebuilt = (0 until connected.mediaItemCount).map { itemIndex ->
+            val item = connected.getMediaItemAt(itemIndex)
+            val uri = item.localConfiguration?.uri?.toString()
+            if (uri == null) {
+                item
+            } else {
+                val itemStartMillis = if (itemIndex == index) startMillis else 0L
+                item.buildUpon()
+                    .setUri(PlaybackStreamUrl.withStartMillis(uri, itemStartMillis))
+                    .build()
+            }
+        }
+        connected.setMediaItems(rebuilt, index, 0L)
+        connected.prepare()
+        if (playWhenReady) connected.play() else connected.pause()
     }
 
     private fun playNow(connected: MediaController, spec: PlaybackQueueSpec, startIndex: Int) {
@@ -203,6 +256,8 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                 mutableState.value = LocalPlaybackUiState(
                     queue = queue,
                     currentIndex = snapshot.currentIndex.coerceIn(queue.indices),
+                    positionMillis = snapshot.positionMillis,
+                    durationMillis = 0L,
                     isPlaying = false,
                     buffering = false,
                     connecting = false,
@@ -232,12 +287,27 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
         val queue = (0 until connected.mediaItemCount).map { index ->
             connected.getMediaItemAt(index).toTrackPreview()
-        }
-        val currentIndex = connected.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
-
+        }        val currentIndex = connected.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
+        val currentUri = connected.currentMediaItem?.localConfiguration?.uri?.toString()
+        val streamOffsetMillis = PlaybackStreamUrl.startMillis(currentUri)
+        val absolutePositionMillis = (
+            streamOffsetMillis + connected.currentPosition.coerceAtLeast(0L)
+            ).coerceAtLeast(0L)
+        val serverDurationMillis = PlaybackStreamMetrics.durationMillis(currentUri)
+        val fallbackDurationMillis = connected.duration
+            .takeIf { it > 0L }
+            ?.let { streamOffsetMillis + it }
+            ?: 0L
+        val durationMillis = maxOf(serverDurationMillis, fallbackDurationMillis)
         mutableState.value = LocalPlaybackUiState(
             queue = queue,
             currentIndex = currentIndex,
+            positionMillis = if (durationMillis > 0L) {
+                absolutePositionMillis.coerceAtMost(durationMillis)
+            } else {
+                absolutePositionMillis
+            },
+            durationMillis = durationMillis,
             isPlaying = connected.isPlaying,
             buffering = connected.playbackState == Player.STATE_BUFFERING,
             connecting = false,
@@ -271,6 +341,8 @@ private fun MediaItem.toTrackPreview(): TrackPreview = TrackPreview(
 data class LocalPlaybackUiState(
     val queue: List<TrackPreview> = emptyList(),
     val currentIndex: Int = -1,
+    val positionMillis: Long = 0L,
+    val durationMillis: Long = 0L,
     val isPlaying: Boolean = false,
     val buffering: Boolean = false,
     val connecting: Boolean = false,
@@ -285,4 +357,9 @@ data class LocalPlaybackUiState(
 
     val hasNext: Boolean
         get() = !resumable && currentIndex >= 0 && currentIndex < queue.lastIndex
+
+    val canSeek: Boolean
+        get() = !resumable && !connecting && currentIndex >= 0 && durationMillis > 0L
 }
+
+private const val PROGRESS_INTERVAL_MILLIS = 500L

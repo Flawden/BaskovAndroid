@@ -1,4 +1,15 @@
 # Changelog
+## 0.7.0 — Time Seek & Playback Progress
+- Added time-based seeking through BaskovDiscordBot v1.33 `startMillis` streaming.
+- Added live absolute playback position and full track duration in Now Playing.
+- Added a seek slider plus ±15 second controls.
+- Added the official neon Baskov Android launcher artwork as legacy, round and adaptive icons.
+- Added duration capture from `X-Baskov-Playback-Duration-Millis` without pretending the Ogg body supports HTTP byte ranges.
+- Playback navigation normalizes queue items back to zero-start streams so revisiting a track does not inherit an old seek offset.
+- Playback snapshots now persist absolute track position and resume the current stream from the saved time after process death.
+- Preserved MediaSession/background/lock-screen/notification and queue editing behavior.
+- Updated the playback HTTP user agent to `BaskovAndroid/0.7.0`.
+- Bumped Android app version to `0.7.0` / versionCode `7`.
 ## 0.6.0 — Now Playing & Queue Experience
 - Added a full-screen Now Playing surface opened directly from the persistent mini-player.
 - Added visible playback queue with current-track highlighting and queue position.

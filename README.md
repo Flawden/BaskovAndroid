@@ -2,50 +2,46 @@
 
 External Android client for Baskov Music.
 
-## v0.6.0 — Now Playing & Queue Experience
+## v0.7.0 — Time Seek & Playback Progress
 
-v0.6 turns the resilient Media3 playback foundation from v0.5 into a real in-app player surface:
+v0.7 connects the v0.5 recovery checkpoint and v0.6 Now Playing UI to BaskovDiscordBot v1.33 time-based streaming seek:
 
 ```text
-Mini-player
-    ↓ tap
-Now Playing
-    ├─ current track + playback state
-    ├─ previous / play-pause / next / stop
-    └─ visible queue
-         ├─ jump to track
-         └─ remove track
-              ↓
-         MediaController
-              ↓
-      MediaSessionService → ExoPlayer
+Compose Now Playing
+   ├─ live elapsed / duration
+   ├─ seek slider
+   └─ ±15 s
+          ↓
+MediaController
+          ↓ restart current MediaItem URL
+?startMillis=<absolute track position>
+          ↓
+MediaSessionService → ExoPlayer → authenticated HTTPS
+          ↓
+BaskovDiscordBot v1.33 → dedicated LavaPlayer stream → Ogg/Opus
 ```
 
 ### Implemented
+- everything from v0.6: full Now Playing, MediaSession queue, queue jump/remove, background/system controls;
+- live absolute playback position while a track is active;
+- total duration captured from `X-Baskov-Playback-Duration-Millis`;
+- slider-based seek and ±15 second seek controls;
+- official Baskov Android launcher branding with legacy, round and adaptive icon resources;
+- time seek by restarting the current provider-neutral stream with Product API `startMillis`;
+- no fake HTTP byte-range support: the Ogg response remains `Accept-Ranges: none`;
+- queue navigation resets non-current items to zero-start URLs so normal Previous/Next semantics stay intact;
+- durable playback snapshots persist absolute position;
+- process-death recovery hydrates the current stream URL with the saved `startMillis`, while still requiring explicit Play before audio resumes;
+- Bearer credentials remain outside media URIs and persisted playback state;
+- playback user agent is `BaskovAndroid/0.7.0`;
+- Android app version is `0.7.0` / versionCode `7`.
 
-- everything from v0.5: background/system playback, lock-screen/notification/headset controls, durable queue snapshots, process-death resumption and encrypted-session auth recovery;
-- full-screen Now Playing opened from the persistent mini-player;
-- current-track title, artist, queue position and connection/buffering/resumable state;
-- visible queue with current-item highlighting;
-- direct jump to any live queue item through the existing `MediaController`;
-- queue item removal through Media3 without moving player ownership back into Compose/ViewModel;
-- explicit protection for resumable snapshots: queue editing stays disabled until Media3 has rebuilt the live queue;
-- Stop continues to clear both the live queue and durable resumable snapshot;
-- playback HTTP user agent updated to `BaskovAndroid/0.6.0`;
-- Android app version `0.6.0` / versionCode `6`.
-
-### Queue semantics
-
-The `MediaSessionService` remains the playback source of truth. Now Playing does not keep a second private queue. Selecting or removing an item mutates the live Media3 queue, and the existing v0.5 timeline listener persists the resulting state for later process recovery.
-
-A process-recreated resumable queue is display-only until the user presses Play. This prevents UI queue edits from diverging from the not-yet-hydrated MediaSession.
+### Recovery semantics
+A killed/recreated process does not auto-play. The resumable mini-player shows the saved track and position. Pressing Play invokes Media3 playback resumption, rehydrates auth from encrypted SessionStore, rebuilds the saved queue and asks BaskovDiscordBot v1.33 for the current track beginning at the saved absolute time.
 
 ### Intentionally absent
-
-- seek/progress controls: Product API v1.32 streams are intentionally non-seekable (`Accept-Ranges: none`);
-- drag-and-drop queue reordering;
-- artwork/catalog image loading;
-- System UI post-reboot resume carousel / Android Auto browse tree;
+- HTTP byte Range seek for the generated Ogg body;
+- System UI post-reboot resume carousel / Android Auto browse tree (`MediaLibraryService`);
 - Cast;
 - remote Discord playback mutations;
 - favorites mutations.
@@ -57,22 +53,10 @@ A process-recreated resumable queue is display-only until the user presses Play.
 - Gradle 8.13
 - Android Gradle Plugin 8.13.0
 - AndroidX Media3 1.8.0 (`media3-exoplayer` + `media3-session`)
-- Kotlin coroutines 1.10.2 (`android` + `guava`)
+- Kotlin coroutines 1.10.2 (`android` + `guava` bridge for Media3 async resumption)
 
-This source bundle does not contain a generated `gradle-wrapper.jar`. The bootstrap script uses an installed Gradle 8.13 when available, otherwise downloads the official Gradle 8.13 distribution and generates the wrapper:
-
-```powershell
-.\scripts\bootstrap-gradle-wrapper.ps1
-```
-
-Then run the full local Android gate:
-
-```powershell
-.\scripts\android-gate.ps1
-```
-
-The gate runs `testDebugUnitTest`, `lintDebug` and `assembleDebug`.
+The repository CI runs unit tests, lint, debug APK assembly and unsigned release APK assembly. The release artifact can be downloaded to Termux, aligned with `zipalign` and signed locally with the persistent Baskov release key.
 
 ## Backend
 
-The v0.6 client requires BaskovDiscordBot `v1.32.0+` Product API behind HTTPS. No backend release is required for v0.6. Do not expose raw Spring port `18080` publicly.
+The v0.7 client requires BaskovDiscordBot `v1.33.0+` Product API behind HTTPS. The stream endpoint accepts `startMillis` for time-based server-side seek and returns the full track duration in `X-Baskov-Playback-Duration-Millis`. Do not expose raw Spring port `18080` publicly.

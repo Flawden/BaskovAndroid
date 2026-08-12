@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -115,6 +116,8 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         onNext = viewModel::nextTrack,
                         onPlayQueueItem = viewModel::playQueueItem,
                         onRemoveQueueItem = viewModel::removeQueueItem,
+                        onSeek = viewModel::seekPlayback,
+                        onSeekBy = viewModel::seekPlaybackBy,
                         onStop = viewModel::stopPlayback,
                     )
                 } else when (val screen = state.screen) {
@@ -547,7 +550,7 @@ private fun MiniPlayer(
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
             Text(
-                "${track.artist ?: "Unknown artist"} • ${playbackStatus(playback)}",
+                "${track.artist ?: "Unknown artist"} • ${formatPlaybackTime(playback.positionMillis)} • ${playbackStatus(playback)}",
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -573,6 +576,8 @@ private fun NowPlayingScreen(
     onNext: () -> Unit,
     onPlayQueueItem: (Int) -> Unit,
     onRemoveQueueItem: (Int) -> Unit,
+    onSeek: (Long) -> Unit,
+    onSeekBy: (Long) -> Unit,
     onStop: () -> Unit,
 ) {
     val track = playback.current ?: return
@@ -599,18 +604,67 @@ private fun NowPlayingScreen(
                         "Трек ${playback.currentIndex + 1} из ${playback.queue.size} • ${playbackStatus(playback)}",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    Text(
+                        "${formatPlaybackTime(playback.positionMillis)} / " +
+                            if (playback.durationMillis > 0L) {
+                                formatPlaybackTime(playback.durationMillis)
+                            } else {
+                                "--:--"
+                            },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                     if (playback.resumable) {
                         Text(
-                            "Сохранённая сессия готова к восстановлению. Play поднимет очередь через Media3.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    } else {
-                        Text(
-                            "Перемотка пока недоступна: Product API v1.32 отдаёт non-seekable Ogg/Opus stream.",
+                            "Сохранено на ${formatPlaybackTime(playback.positionMillis)}. Play восстановит очередь с этой позиции.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
+            }
+        }
+        item {
+            if (playback.canSeek) {
+                var dragging by remember(track.stableKey, playback.currentIndex) { mutableStateOf(false) }
+                var sliderSeconds by remember(track.stableKey, playback.currentIndex) {
+                    mutableStateOf(playback.positionMillis / 1_000f)
+                }
+                val durationSeconds = (playback.durationMillis / 1_000f).coerceAtLeast(0.001f)
+
+                LaunchedEffect(playback.positionMillis, playback.durationMillis, dragging) {
+                    if (!dragging) {
+                        sliderSeconds = (playback.positionMillis / 1_000f)
+                            .coerceIn(0f, durationSeconds)
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Slider(
+                        value = sliderSeconds.coerceIn(0f, durationSeconds),
+                        onValueChange = {
+                            dragging = true
+                            sliderSeconds = it
+                        },
+                        onValueChangeFinished = {
+                            dragging = false
+                            onSeek((sliderSeconds * 1_000f).toLong())
+                        },
+                        valueRange = 0f..durationSeconds,
+                        enabled = !playback.buffering,
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        TextButton(onClick = { onSeekBy(-15_000L) }) { Text("−15 c") }
+                        Text(formatPlaybackTime(playback.positionMillis))
+                        TextButton(onClick = { onSeekBy(15_000L) }) { Text("+15 c") }
+                    }
+                }
+            } else if (!playback.resumable) {
+                Text(
+                    "Получаю длительность потока…",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
         item {
@@ -678,6 +732,18 @@ private fun QueueTrackCard(
                 ) { Text("Убрать") }
             }
         }
+    }
+}
+
+private fun formatPlaybackTime(millis: Long): String {
+    val totalSeconds = millis.coerceAtLeast(0L) / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "$hours:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
+    } else {
+        "$minutes:${seconds.toString().padStart(2, '0')}"
     }
 }
 

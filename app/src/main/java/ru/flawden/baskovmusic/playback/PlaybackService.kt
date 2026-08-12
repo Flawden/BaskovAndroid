@@ -1,6 +1,7 @@
 package ru.flawden.baskovmusic.playback
 
 import android.content.Intent
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -8,7 +9,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -157,7 +160,7 @@ class PlaybackService : MediaSessionService() {
                 MediaSession.MediaItemsWithStartPosition(
                     snapshot.toMediaItems(),
                     snapshot.currentIndex,
-                    0L, // Product API v1.32 streams are intentionally non-seekable (Accept-Ranges: none).
+                    0L, // Current URL already carries Product API v1.33 startMillis.
                 )
             }
         }
@@ -191,15 +194,43 @@ internal object PlaybackAuthBridge {
 
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
-    override fun createDataSource(): DataSource {
-        val source = DefaultHttpDataSource.Factory()
-            .setUserAgent("BaskovAndroid/0.6.0")
-            .createDataSource()
+    override fun createDataSource(): DataSource = BaskovAuthenticatedDataSource()
+}
 
-        source.setRequestProperty("Accept", "audio/ogg")
-        PlaybackAuthBridge.authorizationHeader()?.let { value ->
-            source.setRequestProperty("Authorization", value)
+private class BaskovAuthenticatedDataSource : DataSource {
+    private val source = DefaultHttpDataSource.Factory()
+        .setUserAgent("BaskovAndroid/0.7.0")
+        .createDataSource()
+        .also { http ->
+            http.setRequestProperty("Accept", "audio/ogg")
+            PlaybackAuthBridge.authorizationHeader()?.let { value ->
+                http.setRequestProperty("Authorization", value)
+            }
         }
-        return source
+
+    override fun addTransferListener(transferListener: TransferListener) {
+        source.addTransferListener(transferListener)
+    }
+
+    override fun open(dataSpec: DataSpec): Long {
+        val openedLength = source.open(dataSpec)
+        source.responseHeaders["X-Baskov-Playback-Duration-Millis"]
+            ?.firstOrNull()
+            ?.toLongOrNull()
+            ?.let { duration ->
+                PlaybackStreamMetrics.recordDuration(dataSpec.uri.toString(), duration)
+            }
+        return openedLength
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+        source.read(buffer, offset, length)
+
+    override fun getUri(): Uri? = source.uri
+
+    override fun getResponseHeaders(): Map<String, List<String>> = source.responseHeaders
+
+    override fun close() {
+        source.close()
     }
 }

@@ -33,11 +33,16 @@ internal class PlaybackStateStore(context: Context) {
             return
         }
         val safeIndex = player.currentMediaItemIndex.coerceIn(items.indices)
+        val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+        val absolutePositionMillis = (
+            PlaybackStreamUrl.startMillis(currentUri) +
+                player.currentPosition.coerceAtLeast(0L)
+            ).coerceAtLeast(0L)
         save(
             PlaybackSnapshot(
                 items = items,
                 currentIndex = safeIndex,
-                positionMillis = player.currentPosition.coerceAtLeast(0L),
+                positionMillis = absolutePositionMillis,
                 playWhenReady = player.playWhenReady,
                 savedAtEpochMillis = System.currentTimeMillis(),
             ),
@@ -69,9 +74,10 @@ internal data class PlaybackSnapshot(
     val playWhenReady: Boolean,
     val savedAtEpochMillis: Long,
 ) {
-    fun toMediaItems(): List<MediaItem> = items.map { item ->
+    fun toMediaItems(): List<MediaItem> = items.mapIndexed { index, item ->
+        val startMillis = if (index == currentIndex) positionMillis else 0L
         MediaItem.Builder()
-            .setUri(item.uri)
+            .setUri(PlaybackStreamUrl.withStartMillis(item.uri, startMillis))
             .setMediaId(item.mediaId)
             .setMediaMetadata(
                 MediaMetadata.Builder()
