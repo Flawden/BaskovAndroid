@@ -2,6 +2,7 @@ package ru.flawden.baskovmusic.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -20,18 +21,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.PlaybackQueueSpec
 import ru.flawden.baskovmusic.model.TrackPreview
 
-/**
- * UI-side controller for the system MediaSessionService.
- *
- * v0.5 can also surface a persisted playback snapshot when the process was recreated. The snapshot
- * is display-only until the user presses Play; that command triggers Media3 onPlaybackResumption,
- * where PlaybackService recovers a fresh Bearer token before preparing the restored queue.
- * v0.6 exposes safe queue navigation/removal commands for the full Now Playing surface while the
- * MediaSession remains the single source of truth for both UI and system playback controls.
- */
+/** UI-side controller for the single system MediaSessionService. */
 class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable {
     private val appContext = context.applicationContext
     private val mutableState = MutableStateFlow(LocalPlaybackUiState(connecting = true))
@@ -68,7 +62,8 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                         publish(error = null)
                         pendingPlay?.let { pending ->
                             pendingPlay = null
-                            playNow(connected, pending.spec, pending.startIndex)
+                            pending.bearerToken?.let(PlaybackAuthBridge::update) ?: PlaybackAuthBridge.clear()
+                            playNow(connected, pending.mediaItems, pending.startIndex)
                         } ?: loadResumableSnapshot(connected)
                     }
                     .onFailure { error ->
@@ -84,15 +79,51 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
     fun play(spec: PlaybackQueueSpec, startIndex: Int) {
         require(spec.items.isNotEmpty()) { "Playback queue is empty" }
-        PlaybackAuthBridge.update(spec.bearerToken)
+        val mediaItems = spec.items.mapIndexed { index, item ->
+            MediaItem.Builder()
+                .setUri(item.streamUrl)
+                .setMediaId(item.track.stableKey ?: "baskov-$index")
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(item.track.title ?: "Unknown track")
+                        .setArtist(item.track.artist ?: "Unknown artist")
+                        .build(),
+                )
+                .build()
+        }
+        enqueueOrPlay(mediaItems, startIndex, spec.bearerToken)
+    }
+
+    fun playLocal(tracks: List<LocalTrack>, startIndex: Int) {
+        require(tracks.isNotEmpty()) { "Local playback queue is empty" }
+        val mediaItems = tracks.map { track ->
+            val metadata = MediaMetadata.Builder()
+                .setTitle(track.title)
+                .setArtist(track.artist)
+                .apply {
+                    track.album?.let(::setAlbumTitle)
+                    track.artworkUri?.let { setArtworkUri(Uri.parse(it)) }
+                }
+                .build()
+            MediaItem.Builder()
+                .setUri(track.contentUri)
+                .setMediaId("local:${track.id}")
+                .setMediaMetadata(metadata)
+                .build()
+        }
+        enqueueOrPlay(mediaItems, startIndex, bearerToken = null)
+    }
+
+    private fun enqueueOrPlay(mediaItems: List<MediaItem>, startIndex: Int, bearerToken: String?) {
+        if (bearerToken == null) PlaybackAuthBridge.clear() else PlaybackAuthBridge.update(bearerToken)
         mutableState.value = mutableState.value.copy(resumable = false, error = null)
         val connected = controller
         if (connected == null) {
-            pendingPlay = PendingPlay(spec, startIndex)
+            pendingPlay = PendingPlay(mediaItems, startIndex, bearerToken)
             mutableState.value = mutableState.value.copy(connecting = true, error = null)
             return
         }
-        playNow(connected, spec, startIndex)
+        playNow(connected, mediaItems, startIndex)
     }
 
     fun togglePlayPause() {
@@ -106,7 +137,9 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         }
         if (connected.isPlaying) connected.pause() else connected.play()
         publish()
-    }    fun next() {
+    }
+
+    fun next() {
         val connected = controller ?: return
         val targetIndex = connected.currentMediaItemIndex + 1
         if (targetIndex in 0 until connected.mediaItemCount) {
@@ -186,13 +219,9 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) = publish()
-
     override fun onPlaybackStateChanged(playbackState: Int) = publish()
-
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = publish(error = null)
-
     override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = publish()
-
     override fun onPlayerError(error: PlaybackException) {
         publish(error = error.message ?: error.errorCodeName)
     }
@@ -203,38 +232,28 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         startMillis: Long,
         playWhenReady: Boolean,
     ) {
+        val targetUri = connected.getMediaItemAt(index).localConfiguration?.uri?.toString()
+        val targetIsRemote = PlaybackStreamUrl.isRemoteHttp(targetUri)
         val rebuilt = (0 until connected.mediaItemCount).map { itemIndex ->
             val item = connected.getMediaItemAt(itemIndex)
             val uri = item.localConfiguration?.uri?.toString()
-            if (uri == null) {
+            if (uri == null || !PlaybackStreamUrl.isRemoteHttp(uri)) {
                 item
             } else {
-                val itemStartMillis = if (itemIndex == index) startMillis else 0L
+                val itemStartMillis = if (targetIsRemote && itemIndex == index) startMillis else 0L
                 item.buildUpon()
                     .setUri(PlaybackStreamUrl.withStartMillis(uri, itemStartMillis))
                     .build()
             }
         }
-        connected.setMediaItems(rebuilt, index, 0L)
+        val playerStartMillis = if (targetIsRemote) 0L else startMillis
+        connected.setMediaItems(rebuilt, index, playerStartMillis)
         connected.prepare()
         if (playWhenReady) connected.play() else connected.pause()
     }
 
-    private fun playNow(connected: MediaController, spec: PlaybackQueueSpec, startIndex: Int) {
-        val safeIndex = startIndex.coerceIn(spec.items.indices)
-        val mediaItems = spec.items.mapIndexed { index, item ->
-            MediaItem.Builder()
-                .setUri(item.streamUrl)
-                .setMediaId(item.track.stableKey ?: "baskov-$index")
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(item.track.title ?: "Unknown track")
-                        .setArtist(item.track.artist ?: "Unknown artist")
-                        .build(),
-                )
-                .build()
-        }
-
+    private fun playNow(connected: MediaController, mediaItems: List<MediaItem>, startIndex: Int) {
+        val safeIndex = startIndex.coerceIn(mediaItems.indices)
         connected.setMediaItems(mediaItems, safeIndex, 0L)
         connected.prepare()
         connected.play()
@@ -260,6 +279,8 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                     currentIndex = snapshot.currentIndex.coerceIn(queue.indices),
                     positionMillis = snapshot.positionMillis,
                     durationMillis = 0L,
+                    artworkUrl = snapshot.items.getOrNull(snapshot.currentIndex)?.artworkUri,
+                    isLocal = !snapshot.currentIsRemote,
                     isPlaying = false,
                     buffering = false,
                     connecting = false,
@@ -290,14 +311,14 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         val queue = (0 until connected.mediaItemCount).map { index ->
             connected.getMediaItemAt(index).toTrackPreview()
         }
-
         val currentIndex = connected.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
         val currentUri = connected.currentMediaItem?.localConfiguration?.uri?.toString()
-        val streamOffsetMillis = PlaybackStreamUrl.startMillis(currentUri)
+        val isRemote = PlaybackStreamUrl.isRemoteHttp(currentUri)
+        val streamOffsetMillis = if (isRemote) PlaybackStreamUrl.startMillis(currentUri) else 0L
         val absolutePositionMillis = (
             streamOffsetMillis + connected.currentPosition.coerceAtLeast(0L)
-            ).coerceAtLeast(0L)
-        val serverDurationMillis = PlaybackStreamMetrics.durationMillis(currentUri)
+        ).coerceAtLeast(0L)
+        val serverDurationMillis = if (isRemote) PlaybackStreamMetrics.durationMillis(currentUri) else 0L
         val fallbackDurationMillis = connected.duration
             .takeIf { it > 0L }
             ?.let { streamOffsetMillis + it }
@@ -313,6 +334,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             },
             durationMillis = durationMillis,
             artworkUrl = connected.currentMediaItem?.mediaMetadata?.artworkUri?.toString(),
+            isLocal = currentUri != null && !isRemote,
             isPlaying = connected.isPlaying,
             buffering = connected.playbackState == Player.STATE_BUFFERING,
             connecting = false,
@@ -332,8 +354,9 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
     }
 
     private data class PendingPlay(
-        val spec: PlaybackQueueSpec,
+        val mediaItems: List<MediaItem>,
         val startIndex: Int,
+        val bearerToken: String?,
     )
 }
 
@@ -349,6 +372,7 @@ data class LocalPlaybackUiState(
     val positionMillis: Long = 0L,
     val durationMillis: Long = 0L,
     val artworkUrl: String? = null,
+    val isLocal: Boolean = false,
     val isPlaying: Boolean = false,
     val buffering: Boolean = false,
     val connecting: Boolean = false,

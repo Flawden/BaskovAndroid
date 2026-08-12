@@ -1,6 +1,8 @@
 package ru.flawden.baskovmusic
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import ru.flawden.baskovmusic.playback.PlaybackStreamUrl
 
@@ -29,5 +31,13 @@ class PlaybackStreamUrlTest {
         val sought = "$base&startMillis=15000"
         assertEquals(base, PlaybackStreamUrl.withStartMillis(sought, 0L))
         assertEquals(base, PlaybackStreamUrl.baseKey(sought))
+    }
+
+    @Test
+    fun distinguishesRemoteStreamsFromLocalContentUris() {
+        assertTrue(PlaybackStreamUrl.isRemoteHttp(base))
+        assertTrue(PlaybackStreamUrl.isRemoteHttp("http://10.0.2.2:18080/stream"))
+        assertFalse(PlaybackStreamUrl.isRemoteHttp("content://media/external/audio/media/42"))
+        assertFalse(PlaybackStreamUrl.isRemoteHttp("file:///storage/emulated/0/Music/song.mp3"))
     }
 }

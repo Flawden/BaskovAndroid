@@ -28,6 +28,23 @@ data class TrackPreview(
     val artist: String?,
 )
 
+data class LocalTrack(
+    val id: Long,
+    val title: String,
+    val artist: String,
+    val album: String?,
+    val durationMillis: Long,
+    val contentUri: String,
+    val artworkUri: String?,
+) {
+    val preview: TrackPreview
+        get() = TrackPreview(
+            stableKey = "local:$id",
+            title = title,
+            artist = artist,
+        )
+}
+
 data class MixCard(
     val stationSlug: String?,
     val label: String?,

@@ -23,6 +23,7 @@ class PlaybackSnapshotCodecTest {
                     uri = "https://music.example.test/api/v1/playback/stream?guildId=1&title=Two",
                     title = "Two",
                     artist = null,
+                    artworkUri = "content://media/external/audio/albumart/7",
                 ),
             ),
             currentIndex = 1,
@@ -32,6 +33,18 @@ class PlaybackSnapshotCodecTest {
         )
 
         assertEquals(snapshot, PlaybackSnapshotCodec.decode(PlaybackSnapshotCodec.encode(snapshot)))
+    }
+
+    @Test
+    fun decodesLegacyV1SnapshotWithoutArtwork() {
+        val legacy = "1|0|12345|0|1786479000000\n" +
+            "bG9jYWw6NDI|Y29udGVudDovL21lZGlhL2V4dGVybmFsL2F1ZGlvL21lZGlhLzQy|U29uZw|QXJ0aXN0"
+
+        val decoded = PlaybackSnapshotCodec.decode(legacy)
+
+        assertEquals(12_345L, decoded?.positionMillis)
+        assertEquals("content://media/external/audio/media/42", decoded?.items?.single()?.uri)
+        assertNull(decoded?.items?.single()?.artworkUri)
     }
 
     @Test

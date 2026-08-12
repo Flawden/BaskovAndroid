@@ -11,11 +11,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import ru.flawden.baskovmusic.BuildConfig
 import ru.flawden.baskovmusic.data.BaskovRepository
+import ru.flawden.baskovmusic.data.LocalMusicRepository
 import ru.flawden.baskovmusic.data.api.PairingCodePolicy
 import ru.flawden.baskovmusic.data.api.ServerUrlPolicy
 import ru.flawden.baskovmusic.data.auth.SessionStore
 import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
+import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.MixCard
 import ru.flawden.baskovmusic.model.TrackPreview
 import ru.flawden.baskovmusic.playback.LocalPlaybackController
@@ -23,6 +25,7 @@ import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
 
 class BaskovViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = BaskovRepository(SessionStore(application))
+    private val localMusicRepository = LocalMusicRepository(application)
     private val mutableState = MutableStateFlow(AppUiState())
     private val backStack = ArrayDeque<AppScreen>()
     private val playback = LocalPlaybackController(application)
@@ -70,6 +73,37 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         val snapshot = repository.library(current.guild.guildId)
         setScreen(current.copy(snapshot = snapshot))
     }
+
+    fun openLocalMusic() = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        navigate(
+            AppScreen.LocalMusic(
+                account = context.account,
+                guild = context.guild,
+                permissionGranted = localMusicRepository.hasPermission(),
+                tracks = if (localMusicRepository.hasPermission()) localMusicRepository.tracks() else emptyList(),
+            ),
+        )
+    }
+
+    fun refreshLocalMusic() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return@launchBusy
+        val granted = localMusicRepository.hasPermission()
+        setScreen(
+            current.copy(
+                permissionGranted = granted,
+                tracks = if (granted) localMusicRepository.tracks() else emptyList(),
+            ),
+        )
+    }
+
+    fun playLocalTrack(track: LocalTrack) {
+        val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return
+        val startIndex = current.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+        playback.playLocal(current.tracks, startIndex)
+    }
+
+    fun localAudioPermission(): String = localMusicRepository.requiredPermission()
 
     fun openMixes() = launchBusy {
         val context = currentContext() ?: return@launchBusy
@@ -193,6 +227,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     private fun currentContext(): ScreenContext? = when (val screen = mutableState.value.screen) {
         is AppScreen.Home -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Library -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.LocalMusic -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Mixes -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Mix -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Track -> ScreenContext(screen.account, screen.guild)
@@ -210,6 +245,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
                 screen.snapshot.historyTracks,
                 screen.snapshot.recent,
             ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
+            is AppScreen.LocalMusic -> emptyList()
             is AppScreen.Mix -> screen.detail.seedPreview
             is AppScreen.Track -> backStack.peekLast()?.let { queueFromScreen(it, track) }.orEmpty()
             AppScreen.Loading,
@@ -230,6 +266,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
             screen.snapshot.historyTracks,
             screen.snapshot.recent,
         ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
+        is AppScreen.LocalMusic -> emptyList()
         is AppScreen.Mix -> screen.detail.seedPreview
         is AppScreen.Track -> listOf(screen.track)
         AppScreen.Loading,

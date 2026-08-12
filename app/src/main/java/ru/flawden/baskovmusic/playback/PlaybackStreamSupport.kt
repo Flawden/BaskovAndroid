@@ -10,6 +10,16 @@ import java.util.concurrent.ConcurrentHashMap
 internal object PlaybackStreamUrl {
     private const val START_MILLIS = "startMillis"
 
+    fun isRemoteHttp(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        return runCatching {
+            when (URI.create(url).scheme?.lowercase()) {
+                "http", "https" -> true
+                else -> false
+            }
+        }.getOrDefault(false)
+    }
+
     fun startMillis(url: String?): Long {
         if (url.isNullOrBlank()) return 0L
         val query = url.substringBefore('#').substringAfter('?', "")

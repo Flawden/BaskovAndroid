@@ -1,6 +1,8 @@
 package ru.flawden.baskovmusic.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import ru.flawden.baskovmusic.R
 import ru.flawden.baskovmusic.model.HomeSnapshot
+import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.MixCard
 import ru.flawden.baskovmusic.model.TrackPreview
 import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
@@ -84,6 +87,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
 
     val supportsBack = when (state.screen) {
         is AppScreen.Library,
+        is AppScreen.LocalMusic,
         is AppScreen.Mixes,
         is AppScreen.Mix,
         is AppScreen.Track,
@@ -149,6 +153,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         busy = state.busy,
                         onRefresh = viewModel::refreshHome,
                         onOpenLibrary = viewModel::openLibrary,
+                        onOpenLocalMusic = viewModel::openLocalMusic,
                         onOpenMixes = viewModel::openMixes,
                         onOpenMix = viewModel::openMix,
                         onOpenTrack = viewModel::openTrack,
@@ -162,6 +167,15 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         onRefresh = viewModel::refreshLibrary,
                         onOpenTrack = viewModel::openTrack,
                         onPlayTrack = viewModel::playTrack,
+                        onBack = viewModel::goBack,
+                    )
+                    is AppScreen.LocalMusic -> LocalMusicScreen(
+                        screen = screen,
+                        busy = state.busy,
+                        permission = viewModel.localAudioPermission(),
+                        onPermissionResult = { viewModel.refreshLocalMusic() },
+                        onRefresh = viewModel::refreshLocalMusic,
+                        onPlay = viewModel::playLocalTrack,
                         onBack = viewModel::goBack,
                     )
                     is AppScreen.Mixes -> MixesScreen(
@@ -267,6 +281,7 @@ private fun HomeScreen(
     busy: Boolean,
     onRefresh: () -> Unit,
     onOpenLibrary: () -> Unit,
+    onOpenLocalMusic: () -> Unit,
     onOpenMixes: () -> Unit,
     onOpenMix: (MixCard) -> Unit,
     onOpenTrack: (TrackPreview) -> Unit,
@@ -291,6 +306,14 @@ private fun HomeScreen(
                 Button(onClick = onOpenMixes, enabled = !busy, modifier = Modifier.weight(1f)) {
                     Text("Миксы")
                 }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onOpenLocalMusic,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("📱 Музыка на телефоне")
             }
         }
         item { SectionTitle("Сегодня") }
@@ -356,6 +379,127 @@ private fun LibraryScreen(
         if (screen.snapshot.recent.isEmpty()) item { EmptyCard("Недавних треков пока нет.") }
         items(screen.snapshot.recent) { track -> TrackCardView(track, busy, onOpenTrack, onPlayTrack) }
         item { BottomActions(busy, onRefresh, onBack) }
+    }
+}
+
+@Composable
+private fun LocalMusicScreen(
+    screen: AppScreen.LocalMusic,
+    busy: Boolean,
+    permission: String,
+    onPermissionResult: (Boolean) -> Unit,
+    onRefresh: () -> Unit,
+    onPlay: (LocalTrack) -> Unit,
+    onBack: () -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> onPermissionResult(granted) }
+    val visibleTracks = remember(screen.tracks, query) {
+        val needle = query.trim()
+        if (needle.isBlank()) {
+            screen.tracks
+        } else {
+            screen.tracks.filter { track ->
+                track.title.contains(needle, ignoreCase = true) ||
+                    track.artist.contains(needle, ignoreCase = true) ||
+                    track.album?.contains(needle, ignoreCase = true) == true
+            }
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { ScreenHeader("Музыка на телефоне", screen.guild.name, busy, onBack) }
+        if (!screen.permissionGranted) {
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text("Разреши Баскову читать аудиофайлы на устройстве.", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Файлы никуда не загружаются: v0.10 читает библиотеку через Android MediaStore и играет content:// напрямую.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Button(
+                            onClick = { permissionLauncher.launch(permission) },
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Разрешить доступ к музыке") }
+                    }
+                }
+            }
+        } else {
+            item {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Поиск по локальной музыке") },
+                    placeholder = { Text("Трек, исполнитель или альбом") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                Text(
+                    if (query.isBlank()) "Найдено треков: ${screen.tracks.size}" else "Совпадений: ${visibleTracks.size}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+            if (visibleTracks.isEmpty()) {
+                item {
+                    EmptyCard(
+                        if (screen.tracks.isEmpty()) "MediaStore не нашёл музыкальных файлов."
+                        else "По этому запросу ничего не найдено.",
+                    )
+                }
+            }
+            items(visibleTracks, key = { it.id }) { track ->
+                LocalTrackCard(track = track, busy = busy, onPlay = onPlay)
+            }
+            item { BottomActions(busy, onRefresh, onBack) }
+        }
+    }
+}
+
+@Composable
+private fun LocalTrackCard(
+    track: LocalTrack,
+    busy: Boolean,
+    onPlay: (LocalTrack) -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AsyncImage(
+                model = track.artworkUri,
+                contentDescription = null,
+                fallback = painterResource(R.drawable.ic_launcher_foreground),
+                error = painterResource(R.drawable.ic_launcher_foreground),
+                modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)),
+                contentScale = if (track.artworkUri == null) ContentScale.Fit else ContentScale.Crop,
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(track.title, fontWeight = FontWeight.SemiBold)
+                Text(track.artist, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    listOfNotNull(track.album, formatPlaybackTime(track.durationMillis).takeIf { track.durationMillis > 0L })
+                        .joinToString(" • "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = { onPlay(track) }, enabled = !busy) { Text("▶") }
+        }
     }
 }
 
@@ -772,7 +916,7 @@ private fun NowPlayingScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "●  BASKOV SERVER  •  ${playbackStatus(playback).uppercase()}",
+                    "●  ${if (playback.isLocal) "PHONE" else "BASKOV SERVER"}  •  ${playbackStatus(playback).uppercase()}",
                     style = MaterialTheme.typography.labelMedium,
                     color = BaskovCyan,
                     fontWeight = FontWeight.Bold,

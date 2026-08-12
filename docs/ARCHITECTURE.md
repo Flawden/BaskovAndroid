@@ -23,3 +23,24 @@ The backend remains authoritative for revocation and expiry. On the first authen
 Release builds accept only `https://` API base URLs. Debug builds allow cleartext HTTP so the Android emulator can target a local development gateway.
 
 The Android client never assumes that port `18080` is publicly reachable. Production should terminate TLS at the VPS reverse proxy configured around the Baskov Product API boundary.
+
+
+## v0.10 local media playback
+
+```text
+Android MediaStore
+      ↓
+LocalMusicRepository
+      ↓
+BaskovViewModel
+      ↓
+LocalPlaybackController
+      ↓
+Media3 MediaSessionService
+      ↓
+DefaultDataSource
+  ├── content://  → local device audio
+  └── http(s)://  → authenticated Baskov Product API stream
+```
+
+There is still exactly one playback owner. Remote Baskov streams keep Product API time-seek semantics by rebuilding the HTTP stream URL with `startMillis`. Device-local `content://` items never receive Baskov query parameters and use Media3 native seek positions instead.

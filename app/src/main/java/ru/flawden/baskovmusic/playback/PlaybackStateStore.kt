@@ -1,6 +1,7 @@
 package ru.flawden.baskovmusic.playback
 
 import android.content.Context
+import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -26,6 +27,7 @@ internal class PlaybackStateStore(context: Context) {
                 uri = uri,
                 title = mediaItem.mediaMetadata.title?.toString(),
                 artist = mediaItem.mediaMetadata.artist?.toString(),
+                artworkUri = mediaItem.mediaMetadata.artworkUri?.toString(),
             )
         }
         if (items.isEmpty()) {
@@ -34,10 +36,14 @@ internal class PlaybackStateStore(context: Context) {
         }
         val safeIndex = player.currentMediaItemIndex.coerceIn(items.indices)
         val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+        val remoteOffset = if (PlaybackStreamUrl.isRemoteHttp(currentUri)) {
+            PlaybackStreamUrl.startMillis(currentUri)
+        } else {
+            0L
+        }
         val absolutePositionMillis = (
-            PlaybackStreamUrl.startMillis(currentUri) +
-                player.currentPosition.coerceAtLeast(0L)
-            ).coerceAtLeast(0L)
+            remoteOffset + player.currentPosition.coerceAtLeast(0L)
+        ).coerceAtLeast(0L)
         save(
             PlaybackSnapshot(
                 items = items,
@@ -74,17 +80,30 @@ internal data class PlaybackSnapshot(
     val playWhenReady: Boolean,
     val savedAtEpochMillis: Long,
 ) {
+    val containsRemoteItems: Boolean
+        get() = items.any { PlaybackStreamUrl.isRemoteHttp(it.uri) }
+
+    val currentIsRemote: Boolean
+        get() = items.getOrNull(currentIndex)?.uri?.let(PlaybackStreamUrl::isRemoteHttp) == true
+
     fun toMediaItems(): List<MediaItem> = items.mapIndexed { index, item ->
-        val startMillis = if (index == currentIndex) positionMillis else 0L
+        val uri = if (PlaybackStreamUrl.isRemoteHttp(item.uri)) {
+            val startMillis = if (index == currentIndex) positionMillis else 0L
+            PlaybackStreamUrl.withStartMillis(item.uri, startMillis)
+        } else {
+            item.uri
+        }
+        val metadata = MediaMetadata.Builder()
+            .setTitle(item.title ?: "Unknown track")
+            .setArtist(item.artist ?: "Unknown artist")
+            .apply {
+                item.artworkUri?.let { setArtworkUri(Uri.parse(it)) }
+            }
+            .build()
         MediaItem.Builder()
-            .setUri(PlaybackStreamUrl.withStartMillis(item.uri, startMillis))
+            .setUri(uri)
             .setMediaId(item.mediaId)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(item.title ?: "Unknown track")
-                    .setArtist(item.artist ?: "Unknown artist")
-                    .build(),
-            )
+            .setMediaMetadata(metadata)
             .build()
     }
 }
@@ -94,15 +113,17 @@ internal data class PlaybackSnapshotItem(
     val uri: String,
     val title: String?,
     val artist: String?,
+    val artworkUri: String? = null,
 )
 
 internal object PlaybackSnapshotCodec {
-    private const val VERSION = "1"
+    private const val VERSION_1 = "1"
+    private const val VERSION_2 = "2"
     private val encoder = Base64.getUrlEncoder().withoutPadding()
     private val decoder = Base64.getUrlDecoder()
 
     fun encode(snapshot: PlaybackSnapshot): String = buildString {
-        append(VERSION)
+        append(VERSION_2)
         append('|').append(snapshot.currentIndex)
         append('|').append(snapshot.positionMillis)
         append('|').append(if (snapshot.playWhenReady) 1 else 0)
@@ -112,7 +133,8 @@ internal object PlaybackSnapshotCodec {
             append(encodeField(item.mediaId)).append('|')
             append(encodeField(item.uri)).append('|')
             append(encodeField(item.title)).append('|')
-            append(encodeField(item.artist))
+            append(encodeField(item.artist)).append('|')
+            append(encodeField(item.artworkUri))
         }
     }
 
@@ -120,15 +142,20 @@ internal object PlaybackSnapshotCodec {
         val lines = value.lineSequence().filter(String::isNotBlank).toList()
         require(lines.size >= 2) { "Playback snapshot has no items" }
         val header = lines.first().split('|')
-        require(header.size == 5 && header[0] == VERSION) { "Unsupported playback snapshot" }
+        require(header.size == 5 && header[0] in setOf(VERSION_1, VERSION_2)) {
+            "Unsupported playback snapshot"
+        }
+        val version = header[0]
         val items = lines.drop(1).map { line ->
             val fields = line.split('|')
-            require(fields.size == 4) { "Corrupted playback item" }
+            val expectedFields = if (version == VERSION_2) 5 else 4
+            require(fields.size == expectedFields) { "Corrupted playback item" }
             PlaybackSnapshotItem(
                 mediaId = decodeField(fields[0]).orEmpty(),
                 uri = requireNotNull(decodeField(fields[1])).also { require(it.isNotBlank()) },
                 title = decodeField(fields[2]),
                 artist = decodeField(fields[3]),
+                artworkUri = fields.getOrNull(4)?.let(::decodeField),
             )
         }
         val currentIndex = header[1].toInt()

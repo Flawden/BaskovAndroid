@@ -2,6 +2,12 @@
 
 External Android client for Baskov Music.
 
+## v0.10.0 — Local Music Library & Player
+
+BaskovAndroid now reads the device audio library through Android MediaStore and plays local `content://` audio through the same Media3 session used by remote Baskov playback. Local tracks therefore reuse Now Playing, queue controls, native seek, background playback and system media controls instead of introducing a second player stack.
+
+Remote Baskov streams keep server-accurate `startMillis` seek and authenticated Product API transport. Local tracks use native Media3 seek and require no Baskov playback Bearer token.
+
 ## v0.9.0 — Artwork & Player Experience
 
 BaskovAndroid v0.9 consumes artwork metadata from BaskovDiscordBot v1.34. Real artwork is loaded with Coil and propagated into Media3 metadata for the app and system media surfaces. If artwork is absent or fails to load, the official neon Baskov mascot remains the fallback.

@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
@@ -49,6 +50,9 @@ class PlaybackService : MediaSessionService() {
     @Volatile
     private var hasPlaybackQueue = false
 
+    @Volatile
+    private var hasRemotePlaybackQueue = false
+
     private val persistenceListener = object : Player.Listener {
         override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
             persistCurrentState()
@@ -76,7 +80,10 @@ class PlaybackService : MediaSessionService() {
         stateStore = PlaybackStateStore(this)
         authSessionManager = AuthSessionManager(SessionStore(this))
 
-        val dataSourceFactory = BaskovAuthenticatedDataSourceFactory()
+        val dataSourceFactory = DefaultDataSource.Factory(
+            this,
+            BaskovAuthenticatedDataSourceFactory(),
+        )
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(dataSourceFactory)
 
@@ -113,7 +120,7 @@ class PlaybackService : MediaSessionService() {
         authMaintenanceJob = serviceScope.launch(Dispatchers.IO) {
             while (isActive) {
                 delay(AUTH_CHECK_INTERVAL_MILLIS)
-                if (!hasPlaybackQueue) continue
+                if (!hasPlaybackQueue || !hasRemotePlaybackQueue) continue
                 runCatching {
                     authSessionManager.requireFreshSession(MIN_PLAYBACK_ACCESS_VALIDITY_MILLIS)
                 }.onSuccess { tokens ->
@@ -141,6 +148,7 @@ class PlaybackService : MediaSessionService() {
         }
         mediaSession = null
         hasPlaybackQueue = false
+        hasRemotePlaybackQueue = false
         PlaybackArtworkBridge.listener = null
         PlaybackAuthBridge.clear()
         serviceScope.cancel()
@@ -150,6 +158,10 @@ class PlaybackService : MediaSessionService() {
     private fun persistCurrentState() {
         val player = mediaSession?.player ?: return
         hasPlaybackQueue = player.mediaItemCount > 0 && player.playbackState != Player.STATE_ENDED
+        hasRemotePlaybackQueue = hasPlaybackQueue && (0 until player.mediaItemCount).any { index ->
+            player.getMediaItemAt(index).localConfiguration?.uri?.toString()
+                ?.let(PlaybackStreamUrl::isRemoteHttp) == true
+        }
         stateStore.save(player)
     }
 
@@ -179,13 +191,17 @@ class PlaybackService : MediaSessionService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val snapshot = stateStore.load() ?: return super.onPlaybackResumption(mediaSession, controller)
             return serviceScope.future(Dispatchers.IO) {
-                authSessionManager.authenticated { client, token -> client.me(token) }
-                val tokens = authSessionManager.requireFreshSession(MIN_PLAYBACK_ACCESS_VALIDITY_MILLIS)
-                PlaybackAuthBridge.update(tokens.accessToken)
+                if (snapshot.containsRemoteItems) {
+                    authSessionManager.authenticated { client, token -> client.me(token) }
+                    val tokens = authSessionManager.requireFreshSession(MIN_PLAYBACK_ACCESS_VALIDITY_MILLIS)
+                    PlaybackAuthBridge.update(tokens.accessToken)
+                } else {
+                    PlaybackAuthBridge.clear()
+                }
                 MediaSession.MediaItemsWithStartPosition(
                     snapshot.toMediaItems(),
                     snapshot.currentIndex,
-                    0L, // Current URL already carries Product API v1.33 startMillis.
+                    if (snapshot.currentIsRemote) 0L else snapshot.positionMillis,
                 )
             }
         }
@@ -234,7 +250,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.9.0")
+        .setUserAgent("BaskovAndroid/0.10.0")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")

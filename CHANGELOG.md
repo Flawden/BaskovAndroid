@@ -1,4 +1,16 @@
 # Changelog
+## 0.10.0 — Local Music Library & Player
+- Added an on-device music library backed by Android MediaStore.
+- Added Android 13+ `READ_MEDIA_AUDIO` and legacy read-storage permission handling.
+- Added title/artist/album filtering for local tracks.
+- Added direct `content://` playback through the existing Media3 MediaSessionService.
+- Reused the same Now Playing, queue, seek, background, lock-screen and media-button surfaces for local audio.
+- Added local album-art URI propagation with the Baskov mascot as fallback.
+- Generalized the Media3 data source so authenticated HTTP Baskov streams and local content URIs coexist without creating a second player.
+- Preserved Product API time seek (`startMillis`) for remote streams while local tracks use native Media3 seeking.
+- Extended playback snapshots to preserve artwork and local playback positions while remaining backward-compatible with v0.9 snapshots.
+- Updated playback HTTP user agent to `BaskovAndroid/0.10.0`.
+- Bumped Android app version to `0.10.0` / versionCode `10`.
 ## 0.9.0 — Artwork & Player Experience
 - Consumed BaskovDiscordBot v1.34 `X-Baskov-Playback-Artwork-Url` metadata from the resolved playback stream.
 - Added Coil 3.5.0 Compose/OkHttp image loading for track artwork.
