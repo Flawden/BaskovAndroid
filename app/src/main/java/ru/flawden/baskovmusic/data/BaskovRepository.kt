@@ -35,6 +35,9 @@ class BaskovRepository(
     suspend fun library(guildId: String): LibrarySnapshot =
         authenticated { client, token -> client.library(token, guildId) }
 
+    suspend fun search(guildId: String, query: String): List<TrackPreview> =
+        authenticated { client, token -> client.search(token, guildId, query) }
+
     suspend fun mixes(guildId: String): MixesSnapshot =
         authenticated { client, token -> client.mixes(token, guildId) }
 

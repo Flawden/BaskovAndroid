@@ -25,6 +25,14 @@ sealed interface AppScreen {
         val folderFilterEnabled: Boolean,
         val selectedFolders: Set<String>,
     ) : AppScreen
+    data class Search(
+        val account: AccountInfo,
+        val guild: GuildSummary,
+        val query: String = "",
+        val remoteResults: List<TrackPreview> = emptyList(),
+        val localResults: List<LocalTrack> = emptyList(),
+        val searched: Boolean = false,
+    ) : AppScreen
     data class Mixes(val account: AccountInfo, val guild: GuildSummary, val snapshot: MixesSnapshot) : AppScreen
     data class Mix(val account: AccountInfo, val guild: GuildSummary, val detail: MixDetail) : AppScreen
     data class Track(val account: AccountInfo, val guild: GuildSummary, val track: TrackPreview) : AppScreen

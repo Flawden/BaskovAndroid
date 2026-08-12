@@ -1,5 +1,6 @@
 package ru.flawden.baskovmusic.playback
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import androidx.annotation.OptIn
@@ -27,6 +28,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import ru.flawden.baskovmusic.MainActivity
 import ru.flawden.baskovmusic.data.auth.AuthSessionManager
 import ru.flawden.baskovmusic.data.auth.SessionStore
 
@@ -162,8 +164,19 @@ class PlaybackService : MediaSessionService() {
                 exoPlayer.addListener(persistenceListener)
             }
 
+        val sessionActivity = PendingIntent.getActivity(
+            this,
+            1001,
+            Intent(this, MainActivity::class.java).apply {
+                putExtra(MainActivity.EXTRA_OPEN_NOW_PLAYING, true)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(PlaybackSessionCallback())
+            .setSessionActivity(sessionActivity)
             .build()
 
         PlaybackArtworkBridge.listener = { streamUrl, artworkUrl ->
@@ -310,7 +323,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.11.1")
+        .setUserAgent("BaskovAndroid/0.12.0")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")

@@ -74,6 +74,13 @@ class BaskovApiClient(
             accessToken = accessToken,
         ).toLibrary()
 
+    suspend fun search(accessToken: String, guildId: String, query: String): List<TrackPreview> =
+        requestJson(
+            "GET",
+            "api/v1/search?guildId=${encodeQuery(guildId)}&query=${encodeQuery(query)}&limit=5",
+            accessToken = accessToken,
+        ).getJSONArray("tracks").mapTracks()
+
     suspend fun mixes(accessToken: String, guildId: String): MixesSnapshot =
         requestJson(
             "GET",

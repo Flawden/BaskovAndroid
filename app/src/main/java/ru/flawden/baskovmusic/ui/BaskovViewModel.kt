@@ -81,6 +81,55 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         navigate(loadLocalMusicScreen(context.account, context.guild))
     }
 
+    fun openSearch() {
+        if (mutableState.value.busy) return
+        val context = currentContext() ?: return
+        navigate(AppScreen.Search(context.account, context.guild))
+    }
+
+    fun search(query: String) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Search ?: return@launchBusy
+        val normalized = query.trim()
+        require(normalized.isNotBlank()) { "Введите название трека или исполнителя" }
+
+        val remote = repository.search(current.guild.guildId, normalized)
+        val local = if (localMusicRepository.hasPermission()) {
+            val selection = localMusicSettings.selection()
+            localMusicRepository.tracks()
+                .asSequence()
+                .filter { track -> !selection.enabled || track.folderPath in selection.selectedFolders }
+                .filter { track ->
+                    track.title.contains(normalized, ignoreCase = true) ||
+                        track.artist.contains(normalized, ignoreCase = true) ||
+                        track.album?.contains(normalized, ignoreCase = true) == true
+                }
+                .take(50)
+                .toList()
+        } else {
+            emptyList()
+        }
+        setScreen(current.copy(
+            query = normalized,
+            remoteResults = remote,
+            localResults = local,
+            searched = true,
+        ))
+    }
+
+    fun playSearchRemote(track: TrackPreview) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Search ?: return@launchBusy
+        val queue = current.remoteResults.ifEmpty { listOf(track) }
+        val startIndex = queue.indexOfFirst { sameTrack(it, track) }.coerceAtLeast(0)
+        playback.play(repository.playbackQueue(current.guild.guildId, queue), startIndex)
+    }
+
+    fun playSearchLocal(track: LocalTrack) {
+        val current = mutableState.value.screen as? AppScreen.Search ?: return
+        val queue = current.localResults.ifEmpty { listOf(track) }
+        val startIndex = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+        playback.playLocal(queue, startIndex)
+    }
+
     fun refreshLocalMusic() = launchBusy {
         val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return@launchBusy
         setScreen(loadLocalMusicScreen(current.account, current.guild))
@@ -279,6 +328,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         is AppScreen.Home -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Library -> ScreenContext(screen.account, screen.guild)
         is AppScreen.LocalMusic -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Search -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Mixes -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Mix -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Track -> ScreenContext(screen.account, screen.guild)
@@ -297,6 +347,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
                 screen.snapshot.recent,
             ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
             is AppScreen.LocalMusic -> emptyList()
+            is AppScreen.Search -> screen.remoteResults
             is AppScreen.Mix -> screen.detail.seedPreview
             is AppScreen.Track -> backStack.peekLast()?.let { queueFromScreen(it, track) }.orEmpty()
             AppScreen.Loading,
@@ -318,6 +369,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
             screen.snapshot.recent,
         ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
         is AppScreen.LocalMusic -> emptyList()
+        is AppScreen.Search -> screen.remoteResults
         is AppScreen.Mix -> screen.detail.seedPreview
         is AppScreen.Track -> listOf(screen.track)
         AppScreen.Loading,

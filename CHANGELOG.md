@@ -1,4 +1,12 @@
 # Changelog
+## 0.12.0 — Search & Now Playing Navigation
+- Added authenticated global Baskov search backed by Product API `/api/v1/search`.
+- Added one Search surface that shows remote Baskov candidates and matching tracks from the selected local folders.
+- Added one-tap playback for remote and local search results.
+- Added MediaSession session activity so tapping the system media notification opens BaskovAndroid directly on the current Now Playing screen.
+- Added singleTop intent handling so notification taps reuse the existing activity instead of stacking duplicate screens.
+- Updated playback HTTP user agent to `BaskovAndroid/0.12.0`.
+- Bumped Android app version to `0.12.0` / versionCode `13`.
 ## 0.11.1 — Repeat & Library UX Hotfix
 - Fixed remote Repeat ONE so a track repeats from 0:00 instead of the last server seek offset.
 - Added Repeat ALL end-of-queue recovery and explicit wraparound navigation.

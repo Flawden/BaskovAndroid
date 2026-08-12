@@ -65,7 +65,11 @@ import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BaskovApp(viewModel: BaskovViewModel) {
+fun BaskovApp(
+    viewModel: BaskovViewModel,
+    openNowPlayingRequest: Boolean = false,
+    onNowPlayingRequestConsumed: () -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -86,10 +90,17 @@ fun BaskovApp(viewModel: BaskovViewModel) {
     LaunchedEffect(playback.current) {
         if (playback.current == null) showNowPlaying = false
     }
+    LaunchedEffect(openNowPlayingRequest, playback.current) {
+        if (openNowPlayingRequest && playback.current != null) {
+            showNowPlaying = true
+            onNowPlayingRequestConsumed()
+        }
+    }
 
     val supportsBack = when (state.screen) {
         is AppScreen.Library,
         is AppScreen.LocalMusic,
+        is AppScreen.Search,
         is AppScreen.Mixes,
         is AppScreen.Mix,
         is AppScreen.Track,
@@ -158,6 +169,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         onRefresh = viewModel::refreshHome,
                         onOpenLibrary = viewModel::openLibrary,
                         onOpenLocalMusic = viewModel::openLocalMusic,
+                        onOpenSearch = viewModel::openSearch,
                         onOpenMixes = viewModel::openMixes,
                         onOpenMix = viewModel::openMix,
                         onOpenTrack = viewModel::openTrack,
@@ -183,6 +195,14 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         onUseAllFolders = viewModel::useAllLocalFolders,
                         onClearFolders = viewModel::clearLocalFolders,
                         onPlay = viewModel::playLocalTrack,
+                        onBack = viewModel::goBack,
+                    )
+                    is AppScreen.Search -> SearchScreen(
+                        screen = screen,
+                        busy = state.busy,
+                        onSearch = viewModel::search,
+                        onPlayRemote = viewModel::playSearchRemote,
+                        onPlayLocal = viewModel::playSearchLocal,
                         onBack = viewModel::goBack,
                     )
                     is AppScreen.Mixes -> MixesScreen(
@@ -289,6 +309,7 @@ private fun HomeScreen(
     onRefresh: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenLocalMusic: () -> Unit,
+    onOpenSearch: () -> Unit,
     onOpenMixes: () -> Unit,
     onOpenMix: (MixCard) -> Unit,
     onOpenTrack: (TrackPreview) -> Unit,
@@ -305,6 +326,15 @@ private fun HomeScreen(
             Text("${screen.account.displayName} • ${screen.snapshot.date}")
         }
         item { HomeSummary(screen.snapshot) }
+        item {
+            Button(
+                onClick = onOpenSearch,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("🔍 Найти и включить")
+            }
+        }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onOpenLibrary, enabled = !busy, modifier = Modifier.weight(1f)) {
@@ -603,6 +633,78 @@ private fun LocalTrackCard(
                 )
             }
             TextButton(onClick = { onPlay(track) }, enabled = !busy) { Text("▶") }
+        }
+    }
+}
+
+@Composable
+private fun SearchScreen(
+    screen: AppScreen.Search,
+    busy: Boolean,
+    onSearch: (String) -> Unit,
+    onPlayRemote: (TrackPreview) -> Unit,
+    onPlayLocal: (LocalTrack) -> Unit,
+    onBack: () -> Unit,
+) {
+    var query by rememberSaveable(screen.query) { mutableStateOf(screen.query) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { ScreenHeader("Поиск", screen.guild.name, busy, onBack) }
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Что включить?") },
+                placeholder = { Text("Green Day Holiday") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        item {
+            Button(
+                onClick = { onSearch(query) },
+                enabled = !busy && query.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("🔍 Найти")
+            }
+        }
+        if (!screen.searched) {
+            item {
+                EmptyCard("Поиск одновременно смотрит Baskov backend и выбранные папки на телефоне.")
+            }
+        } else {
+            item { SectionTitle("Baskov / интернет") }
+            if (screen.remoteResults.isEmpty()) {
+                item { EmptyCard("В интернете ничего не найдено.") }
+            } else {
+                items(screen.remoteResults) { track ->
+                    TrackCardView(
+                        track = track,
+                        busy = busy,
+                        onOpen = { onPlayRemote(it) },
+                        onPlay = onPlayRemote,
+                    )
+                }
+            }
+
+            item { SectionTitle("На телефоне") }
+            if (screen.localResults.isEmpty()) {
+                item { EmptyCard("В выбранных локальных папках совпадений нет.") }
+            } else {
+                items(screen.localResults, key = { it.id }) { track ->
+                    LocalTrackCard(track = track, busy = busy, onPlay = onPlayLocal)
+                }
+            }
+        }
+        item {
+            OutlinedButton(onClick = onBack, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text("Назад")
+            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

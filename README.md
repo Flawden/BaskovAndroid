@@ -1,5 +1,10 @@
 # Baskov Android
 
+## v0.12.0 — Search & Now Playing Navigation
+- Global `🔍 Найти и включить` surface with authenticated backend search plus selected-folder local search.
+- Remote search results play through the existing Baskov Product API stream; local results stay on Media3 `content://` playback.
+- Tapping the Android system media notification opens the existing app instance directly on Now Playing for the current track.
+
 ## v0.11.1 — Repeat & Library UX Hotfix
 
 Repeat handling now normalizes remote Baskov streams back to `startMillis=0` when a track is replayed automatically, so Repeat ONE no longer loops from the last seek point. Repeat ALL has an explicit end-of-queue/wraparound fallback while still respecting shuffle order.
