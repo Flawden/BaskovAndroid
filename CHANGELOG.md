@@ -1,5 +1,6 @@
 # Changelog
 ## 0.8.0 — Zero Config & Visual Identity
+- Polished the compact Now Playing transport row for narrow phones: ±15 second controls stay circular and never wrap.
 - Embedded the production Baskov Product API base URL in generated `BuildConfig`.
 - Pairing is now zero-config for normal users: enter only the one-time `/device pair` code.
 - Kept the persisted SessionStore/backend URL flow intact after successful pairing.

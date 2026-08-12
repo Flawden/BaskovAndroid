@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -715,8 +716,14 @@ private fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                OutlinedButton(onClick = { onSeekBy(-15_000L) }, enabled = playback.canSeek, shape = CircleShape) {
-                    Text("−15")
+                OutlinedButton(
+                    onClick = { onSeekBy(-15_000L) },
+                    enabled = playback.canSeek,
+                    shape = CircleShape,
+                    modifier = Modifier.size(56.dp),
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Text("−15", maxLines = 1)
                 }
                 TextButton(onClick = onPrevious, enabled = playback.hasPrevious) { Text("⏮") }
                 Button(
@@ -726,8 +733,14 @@ private fun NowPlayingScreen(
                     modifier = Modifier.size(72.dp),
                 ) { Text(if (playback.isPlaying) "⏸" else "▶") }
                 TextButton(onClick = onNext, enabled = playback.hasNext) { Text("⏭") }
-                OutlinedButton(onClick = { onSeekBy(15_000L) }, enabled = playback.canSeek, shape = CircleShape) {
-                    Text("+15")
+                OutlinedButton(
+                    onClick = { onSeekBy(15_000L) },
+                    enabled = playback.canSeek,
+                    shape = CircleShape,
+                    modifier = Modifier.size(56.dp),
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Text("+15", maxLines = 1)
                 }
             }
         }
