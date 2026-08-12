@@ -1,6 +1,9 @@
 package ru.flawden.baskovmusic.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,9 +13,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,9 +42,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ru.flawden.baskovmusic.R
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.MixCard
 import ru.flawden.baskovmusic.model.TrackPreview
@@ -84,7 +97,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
     BackHandler(enabled = showNowPlaying) { showNowPlaying = false }
     BackHandler(enabled = !showNowPlaying && supportsBack && !state.busy) { viewModel.goBack() }
 
-    MaterialTheme {
+    BaskovTheme {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
@@ -122,7 +135,7 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                     )
                 } else when (val screen = state.screen) {
                     AppScreen.Loading -> CircularProgressIndicator()
-                    is AppScreen.Pairing -> PairingScreen(screen.savedBaseUrl, state.busy, viewModel::pair)
+                    is AppScreen.Pairing -> PairingScreen(state.busy, viewModel::pair)
                     is AppScreen.GuildPicker -> GuildPickerScreen(
                         displayName = screen.account.displayName,
                         guilds = screen.guilds,
@@ -182,24 +195,19 @@ fun BaskovApp(viewModel: BaskovViewModel) {
 }
 
 @Composable
-private fun PairingScreen(savedBaseUrl: String, busy: Boolean, onPair: (String, String) -> Unit) {
-    var baseUrl by remember(savedBaseUrl) { mutableStateOf(savedBaseUrl) }
+private fun PairingScreen(busy: Boolean, onPair: (String) -> Unit) {
     var code by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Подключить устройство", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("В Discord выполни /device pair, затем введи одноразовый код здесь.")
-        OutlinedTextField(
-            value = baseUrl,
-            onValueChange = { baseUrl = it },
-            label = { Text("Baskov API URL") },
-            placeholder = { Text("https://music.example.com/") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
+        Text(
+            "Подключить устройство",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
         )
+        Text("В Discord выполни /device pair и введи одноразовый код. Сервер Baskov уже настроен.")
         OutlinedTextField(
             value = code,
             onValueChange = { code = it.uppercase().take(16) },
@@ -208,13 +216,14 @@ private fun PairingScreen(savedBaseUrl: String, busy: Boolean, onPair: (String, 
             singleLine = true,
         )
         Button(
-            onClick = { onPair(baseUrl, code) },
-            enabled = !busy && baseUrl.isNotBlank() && code.isNotBlank(),
+            onClick = { onPair(code) },
+            enabled = !busy && code.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Подключить") }
         Text(
-            "Release-сборка принимает только HTTPS. Debug разрешает HTTP для локальной разработки.",
+            "Baskov Production • защищённое HTTPS-подключение",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
         )
     }
 }
@@ -583,43 +592,69 @@ private fun NowPlayingScreen(
     val track = playback.current ?: return
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            OutlinedButton(onClick = onClose) { Text("← Назад") }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = onClose) { Text("‹ Назад") }
+                Text(
+                    "СЕЙЧАС ИГРАЕТ",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Bold,
+                )
+                TextButton(onClick = onStop) { Text("■") }
+            }
         }
         item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(
-                    Modifier.fillMaxWidth().padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        track.title ?: "Unknown track",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(270.dp)
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF2B0A4D), Color(0xFF0B1430), Color(0xFF070712)),
+                        ),
                     )
-                    Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Трек ${playback.currentIndex + 1} из ${playback.queue.size} • ${playbackStatus(playback)}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        "${formatPlaybackTime(playback.positionMillis)} / " +
-                            if (playback.durationMillis > 0L) {
-                                formatPlaybackTime(playback.durationMillis)
-                            } else {
-                                "--:--"
-                            },
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    if (playback.resumable) {
-                        Text(
-                            "Сохранено на ${formatPlaybackTime(playback.positionMillis)}. Play восстановит очередь с этой позиции.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
+                    .border(1.dp, BaskovCyan.copy(alpha = 0.45f), RoundedCornerShape(32.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher_foreground),
+                    contentDescription = "Baskov",
+                    modifier = Modifier.size(238.dp),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+        }
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    track.title ?: "Unknown track",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    track.artist ?: "Unknown artist",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    "Трек ${playback.currentIndex + 1} из ${playback.queue.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
             }
         }
         item {
@@ -629,15 +664,12 @@ private fun NowPlayingScreen(
                     mutableStateOf(playback.positionMillis / 1_000f)
                 }
                 val durationSeconds = (playback.durationMillis / 1_000f).coerceAtLeast(0.001f)
-
                 LaunchedEffect(playback.positionMillis, playback.durationMillis, dragging) {
                     if (!dragging) {
-                        sliderSeconds = (playback.positionMillis / 1_000f)
-                            .coerceIn(0f, durationSeconds)
+                        sliderSeconds = (playback.positionMillis / 1_000f).coerceIn(0f, durationSeconds)
                     }
                 }
-
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Slider(
                         value = sliderSeconds.coerceIn(0f, durationSeconds),
                         onValueChange = {
@@ -651,30 +683,69 @@ private fun NowPlayingScreen(
                         valueRange = 0f..durationSeconds,
                         enabled = !playback.buffering,
                     )
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        TextButton(onClick = { onSeekBy(-15_000L) }) { Text("−15 c") }
-                        Text(formatPlaybackTime(playback.positionMillis))
-                        TextButton(onClick = { onSeekBy(15_000L) }) { Text("+15 c") }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(formatPlaybackTime(playback.positionMillis), style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            formatPlaybackTime(playback.durationMillis),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
-            } else if (!playback.resumable) {
+            } else if (playback.resumable) {
+                Text(
+                    "Сохранено на ${formatPlaybackTime(playback.positionMillis)} • Play восстановит эту позицию",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            } else {
                 Text(
                     "Получаю длительность потока…",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                TextButton(onClick = onPrevious, enabled = playback.hasPrevious) { Text("⏮") }
-                Button(onClick = onToggle, enabled = !playback.connecting) {
-                    Text(if (playback.isPlaying) "⏸ Пауза" else "▶ Играть")
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(onClick = { onSeekBy(-15_000L) }, enabled = playback.canSeek, shape = CircleShape) {
+                    Text("−15")
                 }
+                TextButton(onClick = onPrevious, enabled = playback.hasPrevious) { Text("⏮") }
+                Button(
+                    onClick = onToggle,
+                    enabled = !playback.connecting,
+                    shape = CircleShape,
+                    modifier = Modifier.size(72.dp),
+                ) { Text(if (playback.isPlaying) "⏸" else "▶") }
                 TextButton(onClick = onNext, enabled = playback.hasNext) { Text("⏭") }
-                TextButton(onClick = onStop) { Text("⏹") }
+                OutlinedButton(onClick = { onSeekBy(15_000L) }, enabled = playback.canSeek, shape = CircleShape) {
+                    Text("+15")
+                }
+            }
+        }
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "●  BASKOV SERVER  •  ${playbackStatus(playback).uppercase()}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = BaskovCyan,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
         item { SectionTitle("Очередь") }

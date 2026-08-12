@@ -1,4 +1,14 @@
 # Changelog
+## 0.8.0 — Zero Config & Visual Identity
+- Embedded the production Baskov Product API base URL in generated `BuildConfig`.
+- Pairing is now zero-config for normal users: enter only the one-time `/device pair` code.
+- Kept the persisted SessionStore/backend URL flow intact after successful pairing.
+- Added the first Baskov dark Material 3 color system: deep navy, neon purple, cyan and magenta.
+- Redesigned Now Playing around artwork, centered track identity, a cleaner timeline, circular transport controls and Baskov server status.
+- Reused the official v0.7 launcher artwork as the first in-app playback hero until per-track artwork is available.
+- Preserved v0.7 server-accurate seek, ±15 second controls, queue editing, MediaSession background playback and absolute-position recovery.
+- Updated playback HTTP user agent to `BaskovAndroid/0.8.0`.
+- Bumped Android app version to `0.8.0` / versionCode `8`.
 ## 0.7.0 — Time Seek & Playback Progress
 - Added time-based seeking through BaskovDiscordBot v1.33 `startMillis` streaming.
 - Added live absolute playback position and full track duration in Now Playing.

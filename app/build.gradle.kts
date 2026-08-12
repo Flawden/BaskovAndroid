@@ -14,8 +14,13 @@ android {
         applicationId = "ru.flawden.baskovmusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.7.0"
+        versionCode = 8
+        versionName = "0.8.0"
+        buildConfigField(
+            "String",
+            "BASKOV_API_BASE_URL",
+            "\"https://baskov.109-237-96-117.sslip.io\"",
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["usesCleartextTraffic"] = "false"

@@ -34,9 +34,12 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         bootstrap()
     }
 
-    fun pair(baseUrlRaw: String, code: String) = launchBusy {
+    fun pair(code: String) = launchBusy {
         val normalizedCode = PairingCodePolicy.normalize(code)
-        val baseUrl = ServerUrlPolicy.normalize(baseUrlRaw, allowCleartext = BuildConfig.DEBUG)
+        val baseUrl = ServerUrlPolicy.normalize(
+            BuildConfig.BASKOV_API_BASE_URL,
+            allowCleartext = false,
+        )
         repository.pair(baseUrl, normalizedCode, defaultDeviceName())
         loadAuthenticatedState()
     }
