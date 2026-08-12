@@ -197,6 +197,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
     override fun createDataSource(): DataSource = BaskovAuthenticatedDataSource()
 }
 
+@OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
         .setUserAgent("BaskovAndroid/0.7.0")
