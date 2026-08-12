@@ -4,6 +4,7 @@ import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.LibrarySnapshot
+import ru.flawden.baskovmusic.model.LocalMusicFolder
 import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.MixDetail
 import ru.flawden.baskovmusic.model.MixesSnapshot
@@ -20,6 +21,9 @@ sealed interface AppScreen {
         val guild: GuildSummary,
         val permissionGranted: Boolean,
         val tracks: List<LocalTrack>,
+        val folders: List<LocalMusicFolder>,
+        val folderFilterEnabled: Boolean,
+        val selectedFolders: Set<String>,
     ) : AppScreen
     data class Mixes(val account: AccountInfo, val guild: GuildSummary, val snapshot: MixesSnapshot) : AppScreen
     data class Mix(val account: AccountInfo, val guild: GuildSummary, val detail: MixDetail) : AppScreen

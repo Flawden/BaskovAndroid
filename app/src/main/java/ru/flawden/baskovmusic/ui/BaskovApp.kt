@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import androidx.media3.common.Player
 import ru.flawden.baskovmusic.R
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.LocalTrack
@@ -136,6 +138,8 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         onRemoveQueueItem = viewModel::removeQueueItem,
                         onSeek = viewModel::seekPlayback,
                         onSeekBy = viewModel::seekPlaybackBy,
+                        onToggleShuffle = viewModel::toggleShuffle,
+                        onCycleRepeat = viewModel::cycleRepeatMode,
                         onStop = viewModel::stopPlayback,
                     )
                 } else when (val screen = state.screen) {
@@ -175,6 +179,8 @@ fun BaskovApp(viewModel: BaskovViewModel) {
                         permission = viewModel.localAudioPermission(),
                         onPermissionResult = { viewModel.refreshLocalMusic() },
                         onRefresh = viewModel::refreshLocalMusic,
+                        onToggleFolder = viewModel::toggleLocalFolder,
+                        onUseAllFolders = viewModel::useAllLocalFolders,
                         onPlay = viewModel::playLocalTrack,
                         onBack = viewModel::goBack,
                     )
@@ -389,6 +395,8 @@ private fun LocalMusicScreen(
     permission: String,
     onPermissionResult: (Boolean) -> Unit,
     onRefresh: () -> Unit,
+    onToggleFolder: (String) -> Unit,
+    onUseAllFolders: () -> Unit,
     onPlay: (LocalTrack) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -396,12 +404,23 @@ private fun LocalMusicScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> onPermissionResult(granted) }
-    val visibleTracks = remember(screen.tracks, query) {
-        val needle = query.trim()
-        if (needle.isBlank()) {
+    val folderTracks = remember(
+        screen.tracks,
+        screen.folderFilterEnabled,
+        screen.selectedFolders,
+    ) {
+        if (!screen.folderFilterEnabled) {
             screen.tracks
         } else {
-            screen.tracks.filter { track ->
+            screen.tracks.filter { it.folderPath in screen.selectedFolders }
+        }
+    }
+    val visibleTracks = remember(folderTracks, query) {
+        val needle = query.trim()
+        if (needle.isBlank()) {
+            folderTracks
+        } else {
+            folderTracks.filter { track ->
                 track.title.contains(needle, ignoreCase = true) ||
                     track.artist.contains(needle, ignoreCase = true) ||
                     track.album?.contains(needle, ignoreCase = true) == true
@@ -423,7 +442,7 @@ private fun LocalMusicScreen(
                     ) {
                         Text("Разреши Баскову читать аудиофайлы на устройстве.", fontWeight = FontWeight.SemiBold)
                         Text(
-                            "Файлы никуда не загружаются: v0.10 читает библиотеку через Android MediaStore и играет content:// напрямую.",
+                            "Файлы никуда не загружаются: Baskov Music читает библиотеку через Android MediaStore и играет content:// напрямую.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button(
@@ -436,6 +455,62 @@ private fun LocalMusicScreen(
             }
         } else {
             item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Папки библиотеки", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (screen.folderFilterEnabled) {
+                                        "Выбрано: ${screen.selectedFolders.count { selected -> screen.folders.any { it.path == selected } }} из ${screen.folders.size}"
+                                    } else {
+                                        "Используются все найденные папки"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(
+                                onClick = onUseAllFolders,
+                                enabled = !busy && screen.folderFilterEnabled,
+                            ) { Text("Все") }
+                        }
+                        if (screen.folders.isEmpty()) {
+                            Text("MediaStore пока не сообщил ни одной папки.", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            screen.folders.forEach { folder ->
+                                val checked = !screen.folderFilterEnabled || folder.path in screen.selectedFolders
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = { onToggleFolder(folder.path) },
+                                        enabled = !busy,
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(folder.label, style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            "${folder.trackCount} треков",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -447,7 +522,11 @@ private fun LocalMusicScreen(
             }
             item {
                 Text(
-                    if (query.isBlank()) "Найдено треков: ${screen.tracks.size}" else "Совпадений: ${visibleTracks.size}",
+                    when {
+                        query.isNotBlank() -> "Совпадений: ${visibleTracks.size}"
+                        screen.folderFilterEnabled -> "Треков в выбранных папках: ${folderTracks.size}"
+                        else -> "Найдено треков: ${screen.tracks.size}"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
@@ -455,8 +534,11 @@ private fun LocalMusicScreen(
             if (visibleTracks.isEmpty()) {
                 item {
                     EmptyCard(
-                        if (screen.tracks.isEmpty()) "MediaStore не нашёл музыкальных файлов."
-                        else "По этому запросу ничего не найдено.",
+                        when {
+                            screen.tracks.isEmpty() -> "MediaStore не нашёл музыкальных файлов."
+                            screen.folderFilterEnabled && folderTracks.isEmpty() -> "В выбранных папках нет треков. Отметь другую папку или нажми «Все»."
+                            else -> "По этому запросу ничего не найдено."
+                        },
                     )
                 }
             }
@@ -748,6 +830,8 @@ private fun NowPlayingScreen(
     onRemoveQueueItem: (Int) -> Unit,
     onSeek: (Long) -> Unit,
     onSeekBy: (Long) -> Unit,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeat: () -> Unit,
     onStop: () -> Unit,
 ) {
     val track = playback.current ?: return
@@ -903,6 +987,33 @@ private fun NowPlayingScreen(
                     contentPadding = PaddingValues(0.dp),
                 ) {
                     Text("+15", maxLines = 1)
+                }
+            }
+        }
+        item {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onToggleShuffle,
+                    enabled = !playback.connecting && playback.queue.size > 1,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (playback.shuffleEnabled) "🔀 Shuffle: ON" else "🔀 Shuffle: OFF")
+                }
+                OutlinedButton(
+                    onClick = onCycleRepeat,
+                    enabled = !playback.connecting && playback.queue.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        when (playback.repeatMode) {
+                            Player.REPEAT_MODE_ALL -> "🔁 Repeat: ALL"
+                            Player.REPEAT_MODE_ONE -> "🔂 Repeat: ONE"
+                            else -> "↪ Repeat: OFF"
+                        },
+                    )
                 }
             }
         }

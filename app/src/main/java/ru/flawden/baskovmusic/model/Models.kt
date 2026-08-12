@@ -36,6 +36,7 @@ data class LocalTrack(
     val durationMillis: Long,
     val contentUri: String,
     val artworkUri: String?,
+    val folderPath: String,
 ) {
     val preview: TrackPreview
         get() = TrackPreview(
@@ -43,6 +44,14 @@ data class LocalTrack(
             title = title,
             artist = artist,
         )
+}
+
+data class LocalMusicFolder(
+    val path: String,
+    val trackCount: Int,
+) {
+    val label: String
+        get() = path.trim('/').ifBlank { "Корень хранилища" }
 }
 
 data class MixCard(

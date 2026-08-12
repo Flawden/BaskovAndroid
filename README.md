@@ -2,6 +2,12 @@
 
 External Android client for Baskov Music.
 
+## v0.11.0 — Library Control & Playback Modes
+
+Local music can now be filtered by the real MediaStore folder that owns each track. Folder choices persist locally, so call recordings, voice notes and other non-music directories can be excluded without moving files.
+
+Now Playing also exposes persistent Media3 shuffle and repeat modes. Previous/next navigation follows Media3 playlist order, including shuffled queues, while local seek stays native and remote Baskov streams keep the existing server `startMillis` contract.
+
 ## v0.10.0 — Local Music Library & Player
 
 BaskovAndroid now reads the device audio library through Android MediaStore and plays local `content://` audio through the same Media3 session used by remote Baskov playback. Local tracks therefore reuse Now Playing, queue controls, native seek, background playback and system media controls instead of introducing a second player stack.

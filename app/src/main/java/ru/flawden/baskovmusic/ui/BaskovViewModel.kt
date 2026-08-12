@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import ru.flawden.baskovmusic.BuildConfig
 import ru.flawden.baskovmusic.data.BaskovRepository
 import ru.flawden.baskovmusic.data.LocalMusicRepository
+import ru.flawden.baskovmusic.data.LocalMusicSettingsStore
 import ru.flawden.baskovmusic.data.api.PairingCodePolicy
 import ru.flawden.baskovmusic.data.api.ServerUrlPolicy
 import ru.flawden.baskovmusic.data.auth.SessionStore
@@ -26,6 +27,7 @@ import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
 class BaskovViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = BaskovRepository(SessionStore(application))
     private val localMusicRepository = LocalMusicRepository(application)
+    private val localMusicSettings = LocalMusicSettingsStore(application)
     private val mutableState = MutableStateFlow(AppUiState())
     private val backStack = ArrayDeque<AppScreen>()
     private val playback = LocalPlaybackController(application)
@@ -76,31 +78,47 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
 
     fun openLocalMusic() = launchBusy {
         val context = currentContext() ?: return@launchBusy
-        navigate(
-            AppScreen.LocalMusic(
-                account = context.account,
-                guild = context.guild,
-                permissionGranted = localMusicRepository.hasPermission(),
-                tracks = if (localMusicRepository.hasPermission()) localMusicRepository.tracks() else emptyList(),
-            ),
-        )
+        navigate(loadLocalMusicScreen(context.account, context.guild))
     }
 
     fun refreshLocalMusic() = launchBusy {
         val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return@launchBusy
-        val granted = localMusicRepository.hasPermission()
+        setScreen(loadLocalMusicScreen(current.account, current.guild))
+    }
+
+    fun toggleLocalFolder(path: String) {
+        val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return
+        val allFolders = current.folders.mapTo(linkedSetOf()) { it.path }
+        val selected = if (current.folderFilterEnabled) {
+            current.selectedFolders.toMutableSet()
+        } else {
+            allFolders.toMutableSet()
+        }
+        if (!selected.add(path)) selected.remove(path)
+        val useAll = selected == allFolders
+        localMusicSettings.saveSelection(
+            enabled = !useAll,
+            selectedFolders = if (useAll) emptySet() else selected,
+        )
         setScreen(
             current.copy(
-                permissionGranted = granted,
-                tracks = if (granted) localMusicRepository.tracks() else emptyList(),
+                folderFilterEnabled = !useAll,
+                selectedFolders = if (useAll) emptySet() else selected,
             ),
         )
     }
 
+    fun useAllLocalFolders() {
+        val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return
+        localMusicSettings.useAllFolders()
+        setScreen(current.copy(folderFilterEnabled = false, selectedFolders = emptySet()))
+    }
+
     fun playLocalTrack(track: LocalTrack) {
         val current = mutableState.value.screen as? AppScreen.LocalMusic ?: return
-        val startIndex = current.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-        playback.playLocal(current.tracks, startIndex)
+        val queue = filteredLocalTracks(current)
+        val startIndex = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+        playback.playLocal(queue, startIndex)
     }
 
     fun localAudioPermission(): String = localMusicRepository.requiredPermission()
@@ -158,6 +176,8 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     fun removeQueueItem(index: Int) = playback.removeQueueItem(index)
     fun seekPlayback(positionMillis: Long) = playback.seekTo(positionMillis)
     fun seekPlaybackBy(deltaMillis: Long) = playback.seekBy(deltaMillis)
+    fun toggleShuffle() = playback.toggleShuffle()
+    fun cycleRepeatMode() = playback.cycleRepeatMode()
     fun stopPlayback() = playback.stop()
     fun clearPlaybackError() = playback.clearError()
 
@@ -223,6 +243,31 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         }
         setScreen(AppScreen.Home(account, selected, repository.home(selected.guildId)))
     }
+
+    private suspend fun loadLocalMusicScreen(
+        account: AccountInfo,
+        guild: GuildSummary,
+    ): AppScreen.LocalMusic {
+        val granted = localMusicRepository.hasPermission()
+        val tracks = if (granted) localMusicRepository.tracks() else emptyList()
+        val selection = localMusicSettings.selection()
+        return AppScreen.LocalMusic(
+            account = account,
+            guild = guild,
+            permissionGranted = granted,
+            tracks = tracks,
+            folders = localMusicRepository.folders(tracks),
+            folderFilterEnabled = selection.enabled,
+            selectedFolders = selection.selectedFolders,
+        )
+    }
+
+    private fun filteredLocalTracks(screen: AppScreen.LocalMusic): List<LocalTrack> =
+        if (!screen.folderFilterEnabled) {
+            screen.tracks
+        } else {
+            screen.tracks.filter { it.folderPath in screen.selectedFolders }
+        }
 
     private fun currentContext(): ScreenContext? = when (val screen = mutableState.value.screen) {
         is AppScreen.Home -> ScreenContext(screen.account, screen.guild)

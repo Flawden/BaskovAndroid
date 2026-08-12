@@ -44,3 +44,8 @@ DefaultDataSource
 ```
 
 There is still exactly one playback owner. Remote Baskov streams keep Product API time-seek semantics by rebuilding the HTTP stream URL with `startMillis`. Device-local `content://` items never receive Baskov query parameters and use Media3 native seek positions instead.
+## v0.11 local library control and playback modes
+
+`LocalMusicRepository` reads the MediaStore folder path alongside track metadata. `LocalMusicSettingsStore` persists an optional allow-list of folder paths; an unset filter means all MediaStore music remains visible. The filter only changes the Android library/queue and never mutates or moves files.
+
+Shuffle and repeat are Media3 player properties owned by the same `MediaSessionService`. `PlaybackModeStore` persists them independently of the resumable queue snapshot so they survive app/service recreation. Native Media3 previous/next navigation is used so shuffle and repeat semantics remain authoritative in the player.

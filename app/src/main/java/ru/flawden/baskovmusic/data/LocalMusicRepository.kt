@@ -7,9 +7,11 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import java.io.File
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import ru.flawden.baskovmusic.model.LocalMusicFolder
 import ru.flawden.baskovmusic.model.LocalTrack
 
 /** Reads the device audio library through MediaStore without copying audio into the app. */
@@ -30,6 +32,11 @@ class LocalMusicRepository(context: Context) {
     suspend fun tracks(): List<LocalTrack> = withContext(Dispatchers.IO) {
         check(hasPermission()) { "Нужен доступ к музыке на устройстве." }
 
+        val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Audio.Media.RELATIVE_PATH
+        } else {
+            MediaStore.Audio.Media.DATA
+        }
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
@@ -38,6 +45,7 @@ class LocalMusicRepository(context: Context) {
             MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DISPLAY_NAME,
+            pathColumn,
         )
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         val sortOrder = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
@@ -57,6 +65,7 @@ class LocalMusicRepository(context: Context) {
             val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+            val pathColumnIndex = cursor.getColumnIndexOrThrow(pathColumn)
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
@@ -73,6 +82,10 @@ class LocalMusicRepository(context: Context) {
                 ).toString()
                 val artworkUri = albumId.takeIf { it > 0L }
                     ?.let { ContentUris.withAppendedId(ALBUM_ART_URI, it).toString() }
+                val folderPath = folderPath(
+                    rawPath = cursor.getString(pathColumnIndex),
+                    relativePath = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
+                )
 
                 result += LocalTrack(
                     id = id,
@@ -82,10 +95,29 @@ class LocalMusicRepository(context: Context) {
                     durationMillis = durationMillis,
                     contentUri = contentUri,
                     artworkUri = artworkUri,
+                    folderPath = folderPath,
                 )
             }
         }
         result
+    }
+
+    fun folders(tracks: List<LocalTrack>): List<LocalMusicFolder> = tracks
+        .groupingBy(LocalTrack::folderPath)
+        .eachCount()
+        .map { (path, count) -> LocalMusicFolder(path = path, trackCount = count) }
+        .sortedBy { it.label.lowercase() }
+
+    private fun folderPath(rawPath: String?, relativePath: Boolean): String {
+        val raw = rawPath?.trim().orEmpty()
+        if (relativePath) return raw.replace('\\', '/').trim('/').ifBlank { "/" }
+        return raw.takeIf(String::isNotBlank)
+            ?.let(::File)
+            ?.parent
+            ?.replace('\\', '/')
+            ?.trimEnd('/')
+            ?.ifBlank { "/" }
+            ?: "/"
     }
 
     private fun cleanMetadata(value: String?): String? = value

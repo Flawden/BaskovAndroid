@@ -1,4 +1,8 @@
 # Changelog
+## 0.11.0 — Library Control & Playback Modes
+- Added persistent local music folder filtering.
+- Added shuffle and repeat playback modes.
+- Improved Media3 navigation so shuffled queues use native next/previous semantics.
 ## 0.10.0 — Local Music Library & Player
 - Added an on-device music library backed by Android MediaStore.
 - Added Android 13+ `READ_MEDIA_AUDIO` and legacy read-storage permission handling.

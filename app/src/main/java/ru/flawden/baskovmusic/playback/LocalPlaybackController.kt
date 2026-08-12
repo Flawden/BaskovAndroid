@@ -28,7 +28,15 @@ import ru.flawden.baskovmusic.model.TrackPreview
 /** UI-side controller for the single system MediaSessionService. */
 class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable {
     private val appContext = context.applicationContext
-    private val mutableState = MutableStateFlow(LocalPlaybackUiState(connecting = true))
+    private val playbackModeStore = PlaybackModeStore(appContext)
+    private val initialModes = playbackModeStore.load()
+    private val mutableState = MutableStateFlow(
+        LocalPlaybackUiState(
+            connecting = true,
+            shuffleEnabled = initialModes.shuffleEnabled,
+            repeatMode = initialModes.repeatMode,
+        ),
+    )
     private val playbackStateStore = PlaybackStateStore(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val sessionToken = SessionToken(
@@ -141,9 +149,9 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
 
     fun next() {
         val connected = controller ?: return
-        val targetIndex = connected.currentMediaItemIndex + 1
+        val targetIndex = connected.nextMediaItemIndex
         if (targetIndex in 0 until connected.mediaItemCount) {
-            restartQueueAt(connected, targetIndex, 0L, playWhenReady = true)
+            playFromStart(connected, targetIndex)
         }
         publish()
     }
@@ -154,9 +162,9 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             seekTo(0L)
             return
         }
-        val targetIndex = connected.currentMediaItemIndex - 1
+        val targetIndex = connected.previousMediaItemIndex
         if (targetIndex in 0 until connected.mediaItemCount) {
-            restartQueueAt(connected, targetIndex, 0L, playWhenReady = true)
+            playFromStart(connected, targetIndex)
         }
         publish()
     }
@@ -164,7 +172,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
     fun playQueueItem(index: Int) {
         val connected = controller ?: return
         if (mutableState.value.resumable || index !in 0 until connected.mediaItemCount) return
-        restartQueueAt(connected, index, 0L, playWhenReady = true)
+        playFromStart(connected, index)
         publish(error = null)
     }
 
@@ -181,12 +189,17 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         } else {
             positionMillis.coerceAtLeast(0L)
         }
-        restartQueueAt(
-            connected = connected,
-            index = index,
-            startMillis = target,
-            playWhenReady = connected.playWhenReady,
-        )
+        val currentUri = connected.currentMediaItem?.localConfiguration?.uri?.toString()
+        if (PlaybackStreamUrl.isRemoteHttp(currentUri)) {
+            restartQueueAt(
+                connected = connected,
+                index = index,
+                startMillis = target,
+                playWhenReady = connected.playWhenReady,
+            )
+        } else {
+            connected.seekTo(index, target)
+        }
         publish(error = null)
     }
 
@@ -203,6 +216,26 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         publish(error = null)
     }
 
+    fun toggleShuffle() {
+        val connected = controller ?: return
+        val enabled = !connected.shuffleModeEnabled
+        connected.shuffleModeEnabled = enabled
+        playbackModeStore.saveShuffle(enabled)
+        publish(error = null)
+    }
+
+    fun cycleRepeatMode() {
+        val connected = controller ?: return
+        val next = when (connected.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+        connected.repeatMode = next
+        playbackModeStore.saveRepeatMode(next)
+        publish(error = null)
+    }
+
     fun stop() {
         pendingPlay = null
         controller?.run {
@@ -211,7 +244,12 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
         }
         playbackStateStore.clear()
         PlaybackAuthBridge.clear()
-        mutableState.value = LocalPlaybackUiState(connecting = controller == null)
+        val modes = playbackModeStore.load()
+        mutableState.value = LocalPlaybackUiState(
+            connecting = controller == null,
+            shuffleEnabled = modes.shuffleEnabled,
+            repeatMode = modes.repeatMode,
+        )
     }
 
     fun clearError() {
@@ -222,8 +260,20 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
     override fun onPlaybackStateChanged(playbackState: Int) = publish()
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = publish(error = null)
     override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = publish()
+    override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = publish()
+    override fun onRepeatModeChanged(repeatMode: Int) = publish()
     override fun onPlayerError(error: PlaybackException) {
         publish(error = error.message ?: error.errorCodeName)
+    }
+
+    private fun playFromStart(connected: MediaController, index: Int) {
+        val targetUri = connected.getMediaItemAt(index).localConfiguration?.uri?.toString()
+        if (PlaybackStreamUrl.isRemoteHttp(targetUri)) {
+            restartQueueAt(connected, index, 0L, playWhenReady = true)
+        } else {
+            connected.seekToDefaultPosition(index)
+            connected.play()
+        }
     }
 
     private fun restartQueueAt(
@@ -285,6 +335,8 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                     buffering = false,
                     connecting = false,
                     resumable = true,
+                    shuffleEnabled = playbackModeStore.load().shuffleEnabled,
+                    repeatMode = playbackModeStore.load().repeatMode,
                     error = null,
                 )
             }
@@ -339,6 +391,10 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             buffering = connected.playbackState == Player.STATE_BUFFERING,
             connecting = false,
             resumable = false,
+            shuffleEnabled = connected.shuffleModeEnabled,
+            repeatMode = connected.repeatMode,
+            canGoPrevious = connected.hasPreviousMediaItem(),
+            canGoNext = connected.hasNextMediaItem(),
             error = error,
         )
     }
@@ -377,16 +433,20 @@ data class LocalPlaybackUiState(
     val buffering: Boolean = false,
     val connecting: Boolean = false,
     val resumable: Boolean = false,
+    val shuffleEnabled: Boolean = false,
+    @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val canGoPrevious: Boolean = false,
+    val canGoNext: Boolean = false,
     val error: String? = null,
 ) {
     val current: TrackPreview?
         get() = queue.getOrNull(currentIndex)
 
     val hasPrevious: Boolean
-        get() = !resumable && currentIndex > 0
+        get() = !resumable && canGoPrevious
 
     val hasNext: Boolean
-        get() = !resumable && currentIndex >= 0 && currentIndex < queue.lastIndex
+        get() = !resumable && canGoNext
 
     val canSeek: Boolean
         get() = !resumable && !connecting && currentIndex >= 0 && durationMillis > 0L

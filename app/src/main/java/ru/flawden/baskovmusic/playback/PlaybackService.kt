@@ -43,6 +43,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private lateinit var stateStore: PlaybackStateStore
     private lateinit var authSessionManager: AuthSessionManager
+    private lateinit var playbackModeStore: PlaybackModeStore
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var snapshotJob: Job? = null
     private var authMaintenanceJob: Job? = null
@@ -79,6 +80,7 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         stateStore = PlaybackStateStore(this)
         authSessionManager = AuthSessionManager(SessionStore(this))
+        playbackModeStore = PlaybackModeStore(this)
 
         val dataSourceFactory = DefaultDataSource.Factory(
             this,
@@ -99,6 +101,7 @@ class PlaybackService : MediaSessionService() {
                     true,
                 )
                 exoPlayer.setHandleAudioBecomingNoisy(true)
+                playbackModeStore.applyTo(exoPlayer)
                 exoPlayer.addListener(persistenceListener)
             }
 
@@ -250,7 +253,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.10.0")
+        .setUserAgent("BaskovAndroid/0.11.0")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")
