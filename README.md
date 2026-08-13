@@ -1,4 +1,9 @@
 # Baskov Android
+## v0.16.0 — Search v2: Fuzzy & Ranked Local Search
+- Local search is typo-tolerant and relevance-ranked instead of raw substring filtering.
+- Title has the strongest ranking weight, followed by artist and album; exact/prefix matches remain above fuzzy candidates.
+- Token matching understands combined queries and common adjacent-letter transpositions while preserving the existing folder selection.
+
 ## v0.15.0 — Taste Signals Foundation
 - Local and remote listening behavior now contributes to the same personal taste model used by Baskov recommendations.
 - Playback/favorite events are persisted in a bounded offline queue and delivered in authenticated batches to BaskovDiscordBot v1.38.

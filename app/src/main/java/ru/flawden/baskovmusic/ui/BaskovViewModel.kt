@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import ru.flawden.baskovmusic.BuildConfig
 import ru.flawden.baskovmusic.data.BaskovRepository
 import ru.flawden.baskovmusic.data.LocalMusicRepository
+import ru.flawden.baskovmusic.data.LocalSearchRanker
 import ru.flawden.baskovmusic.data.LocalMusicSettingsStore
 import ru.flawden.baskovmusic.data.TasteSignalReporter
 import ru.flawden.baskovmusic.data.api.PairingCodePolicy
@@ -195,16 +196,9 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         val remote = repository.search(current.guild.guildId, normalized)
         val local = if (localMusicRepository.hasPermission()) {
             val selection = localMusicSettings.selection()
-            localMusicRepository.tracks()
-                .asSequence()
+            val candidates = localMusicRepository.tracks()
                 .filter { track -> !selection.enabled || track.folderPath in selection.selectedFolders }
-                .filter { track ->
-                    track.title.contains(normalized, ignoreCase = true) ||
-                        track.artist.contains(normalized, ignoreCase = true) ||
-                        track.album?.contains(normalized, ignoreCase = true) == true
-                }
-                .take(50)
-                .toList()
+            LocalSearchRanker.search(candidates, normalized, limit = 50)
         } else {
             emptyList()
         }

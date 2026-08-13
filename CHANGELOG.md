@@ -1,3 +1,13 @@
+## 0.16.0 — Search v2: Fuzzy & Ranked Local Search
+- Replaced local-library substring filtering with ranked typo-tolerant search across title, artist and album.
+- Exact title/prefix matches outrank fuzzy matches; artist and album matches use lower weights to keep results intuitive.
+- Added token-aware matching so combined queries such as `Skillet Monster` rank the intended track first.
+- Added Damerau-Levenshtein tolerance for common misspellings and adjacent transpositions such as `Прывет` → `Привет` and `Green Dya` → `Green Day`.
+- Local search still respects the existing selected-folder filter and remains capped to the top 50 displayed results.
+- Added pure JVM ranking regression tests.
+- Updated playback HTTP user agent to `BaskovAndroid/0.16.0`.
+- Bumped Android app version to `0.16.0` / versionCode `19`.
+
 ## 0.15.0 — Taste Signals Foundation
 - Added a durable device-side taste-signal queue that commits listening feedback locally before attempting authenticated Product API delivery.
 - Local and remote playback now emit bounded `PLAY`, completion, replay, quick-skip and early-stop signals into BaskovDiscordBot v1.38 personal taste profiles.
