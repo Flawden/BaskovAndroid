@@ -70,6 +70,7 @@ sealed interface AppScreen {
 
 data class AppUiState(
     val screen: AppScreen = AppScreen.Loading,
+    val favoriteKeys: Set<String> = emptySet(),
     val busy: Boolean = false,
     val error: String? = null,
     val notice: String? = null,

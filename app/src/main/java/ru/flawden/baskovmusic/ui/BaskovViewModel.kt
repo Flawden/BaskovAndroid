@@ -23,6 +23,7 @@ import ru.flawden.baskovmusic.model.MixCard
 import ru.flawden.baskovmusic.model.SharedPlaylistSummary
 import ru.flawden.baskovmusic.model.TrackPreview
 import ru.flawden.baskovmusic.playback.LocalPlaybackController
+import ru.flawden.baskovmusic.playback.FavoriteStateBridge
 import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
 
 class BaskovViewModel(application: Application) : AndroidViewModel(application) {
@@ -37,6 +38,20 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     val playbackState: StateFlow<LocalPlaybackUiState> = playback.state
 
     init {
+        viewModelScope.launch {
+            FavoriteStateBridge.state.collect { favorite ->
+                val stableKey = favorite.stableKey ?: return@collect
+                val currentKeys = mutableState.value.favoriteKeys
+                val updatedKeys = if (favorite.supported && favorite.favorite) {
+                    currentKeys + stableKey
+                } else {
+                    currentKeys - stableKey
+                }
+                if (updatedKeys != currentKeys) {
+                    mutableState.value = mutableState.value.copy(favoriteKeys = updatedKeys)
+                }
+            }
+        }
         bootstrap()
     }
 
@@ -57,6 +72,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         val snapshot = repository.home(guild.guildId)
         backStack.clear()
         setScreen(AppScreen.Home(account, guild, snapshot))
+        syncFavoriteKeys(guild.guildId)
     }
 
     fun refreshHome() = launchBusy {
@@ -81,11 +97,25 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         val context = currentContext() ?: return@launchBusy
         val snapshot = repository.favorites(context.guild.guildId)
         navigate(AppScreen.Favorites(context.account, context.guild, snapshot))
+        syncFavoriteKeys(context.guild.guildId)
     }
 
     fun refreshFavorites() = launchBusy {
         val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
         setScreen(current.copy(snapshot = repository.favorites(current.guild.guildId)))
+        syncFavoriteKeys(current.guild.guildId)
+    }
+
+    fun loadMoreFavorites() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
+        if (!current.snapshot.hasMore) return@launchBusy
+        val next = repository.favorites(
+            current.guild.guildId,
+            offset = current.snapshot.offset + current.snapshot.tracks.size,
+            limit = current.snapshot.limit.coerceAtLeast(50),
+        )
+        val merged = current.snapshot.tracks + next.tracks
+        setScreen(current.copy(snapshot = next.copy(offset = 0, tracks = merged)))
     }
 
     fun searchFavoriteAdd(query: String) = launchBusy {
@@ -98,15 +128,18 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
 
     fun addFavorite(track: TrackPreview) = launchBusy {
         val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
-        val updated = repository.addFavorite(current.guild.guildId, track)
-        setScreen(current.copy(snapshot = updated))
+        repository.addFavorite(current.guild.guildId, track)
+        setScreen(current.copy(snapshot = repository.favorites(current.guild.guildId)))
+        syncFavoriteKeys(current.guild.guildId)
         setNotice("Добавлено в избранное")
     }
 
-    fun removeFavorite(index: Int) = launchBusy {
+    fun removeFavorite(track: TrackPreview) = launchBusy {
         val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
-        val updated = repository.removeFavorite(current.guild.guildId, index + 1)
-        setScreen(current.copy(snapshot = updated))
+        val stableKey = requireNotNull(track.stableKey) { "Favorite stableKey is required" }
+        repository.removeFavoriteByStableKey(current.guild.guildId, stableKey)
+        setScreen(current.copy(snapshot = repository.favorites(current.guild.guildId)))
+        syncFavoriteKeys(current.guild.guildId)
         setNotice("Удалено из избранного")
     }
 
@@ -114,13 +147,15 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
         val updated = repository.clearFavorites(current.guild.guildId)
         setScreen(current.copy(snapshot = updated, addResults = emptyList(), addSearched = false))
+        applyFavoriteKeys(emptySet())
         setNotice("Избранное очищено")
     }
 
     fun playFavorites() = launchBusy {
         val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
-        require(current.snapshot.tracks.isNotEmpty()) { "Избранное пусто" }
-        playback.play(repository.playbackQueue(current.guild.guildId, current.snapshot.tracks), 0)
+        val all = repository.allFavorites(current.guild.guildId)
+        require(all.tracks.isNotEmpty()) { "Избранное пусто" }
+        playback.play(repository.playbackQueue(current.guild.guildId, all.tracks), 0)
     }
 
     fun openServers() = launchBusy {
@@ -138,9 +173,9 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         navigate(loadLocalMusicScreen(context.account, context.guild))
     }
 
-    fun openSearch() {
-        if (mutableState.value.busy) return
-        val context = currentContext() ?: return
+    fun openSearch() = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        syncFavoriteKeys(context.guild.guildId)
         navigate(AppScreen.Search(context.account, context.guild))
     }
 
@@ -379,13 +414,23 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         playback.play(repository.playbackQueue(context.guild.guildId, queue), startIndex)
     }
 
-    fun addCurrentToFavorites() = launchBusy {
+    fun toggleCurrentFavorite() {
+        playback.toggleFavorite()
+    }
+
+    fun toggleFavorite(track: TrackPreview) = launchBusy {
         val context = currentContext() ?: return@launchBusy
-        val playbackState = playback.state.value
-        require(!playbackState.isLocal) { "Локальный файл пока нельзя добавить в общее избранное" }
-        val current = playbackState.current ?: return@launchBusy
-        repository.addFavorite(context.guild.guildId, current)
-        setNotice("Добавлено в избранное")
+        val stableKey = requireNotNull(track.stableKey) { "Track stableKey is required" }
+        val favorite = stableKey !in mutableState.value.favoriteKeys
+        if (favorite) {
+            repository.addFavorite(context.guild.guildId, track)
+        } else {
+            repository.removeFavoriteByStableKey(context.guild.guildId, stableKey)
+        }
+        applyFavoriteKeys(
+            if (favorite) mutableState.value.favoriteKeys + stableKey
+            else mutableState.value.favoriteKeys - stableKey,
+        )
     }
 
     fun togglePlayback() = playback.togglePlayPause()
@@ -465,6 +510,24 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         setScreen(AppScreen.Home(account, selected, repository.home(selected.guildId)))
+        syncFavoriteKeys(selected.guildId)
+    }
+
+    private suspend fun syncFavoriteKeys(guildId: String) {
+        applyFavoriteKeys(repository.favoriteKeys(guildId))
+    }
+
+    private fun applyFavoriteKeys(keys: Set<String>) {
+        mutableState.value = mutableState.value.copy(favoriteKeys = keys)
+        val playbackSnapshot = playback.state.value
+        val currentKey = playbackSnapshot.current?.stableKey
+        if (currentKey != null && playbackSnapshot.favoriteSupported) {
+            FavoriteStateBridge.publish(
+                stableKey = currentKey,
+                supported = true,
+                favorite = currentKey in keys,
+            )
+        }
     }
 
     private suspend fun loadLocalMusicScreen(

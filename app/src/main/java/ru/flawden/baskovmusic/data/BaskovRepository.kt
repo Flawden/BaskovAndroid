@@ -40,14 +40,26 @@ class BaskovRepository(
     suspend fun library(guildId: String): LibrarySnapshot =
         authenticated { client, token -> client.library(token, guildId) }
 
-    suspend fun favorites(guildId: String): FavoriteSnapshot =
+    suspend fun favorites(guildId: String, offset: Int = 0, limit: Int = 50): FavoriteSnapshot =
+        authenticated { client, token -> client.favorites(token, guildId, offset, limit) }
+
+    suspend fun allFavorites(guildId: String): FavoriteSnapshot =
         authenticated { client, token -> client.favorites(token, guildId) }
+
+    suspend fun favoriteKeys(guildId: String): Set<String> =
+        authenticated { client, token -> client.favoriteKeys(token, guildId) }
+
+    suspend fun favoriteStatus(guildId: String, stableKey: String): Boolean =
+        authenticated { client, token -> client.favoriteStatus(token, guildId, stableKey) }
 
     suspend fun addFavorite(guildId: String, track: TrackPreview): FavoriteSnapshot =
         authenticated { client, token -> client.addFavorite(token, guildId, track) }
 
     suspend fun removeFavorite(guildId: String, oneBasedPosition: Int): FavoriteSnapshot =
         authenticated { client, token -> client.removeFavorite(token, guildId, oneBasedPosition) }
+
+    suspend fun removeFavoriteByStableKey(guildId: String, stableKey: String): Boolean =
+        authenticated { client, token -> client.removeFavoriteByStableKey(token, guildId, stableKey) }
 
     suspend fun clearFavorites(guildId: String): FavoriteSnapshot =
         authenticated { client, token -> client.clearFavorites(token, guildId) }

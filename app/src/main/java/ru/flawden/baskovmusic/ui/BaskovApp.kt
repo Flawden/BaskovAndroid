@@ -162,7 +162,7 @@ fun BaskovApp(
                         onSeekBy = viewModel::seekPlaybackBy,
                         onToggleShuffle = viewModel::toggleShuffle,
                         onCycleRepeat = viewModel::cycleRepeatMode,
-                        onAddFavorite = viewModel::addCurrentToFavorites,
+                        onToggleFavorite = viewModel::toggleCurrentFavorite,
                         onStop = viewModel::stopPlayback,
                     )
                 } else when (val screen = state.screen) {
@@ -218,12 +218,15 @@ fun BaskovApp(
                         onSearch = viewModel::search,
                         onPlayRemote = viewModel::playSearchRemote,
                         onPlayLocal = viewModel::playSearchLocal,
+                        favoriteKeys = state.favoriteKeys,
+                        onToggleFavorite = viewModel::toggleFavorite,
                         onBack = viewModel::goBack,
                     )
                     is AppScreen.Favorites -> FavoritesScreen(
                         screen = screen,
                         busy = state.busy,
                         onRefresh = viewModel::refreshFavorites,
+                        onLoadMore = viewModel::loadMoreFavorites,
                         onPlayAll = viewModel::playFavorites,
                         onSearchAdd = viewModel::searchFavoriteAdd,
                         onAdd = viewModel::addFavorite,
@@ -720,6 +723,8 @@ private fun SearchScreen(
     onSearch: (String) -> Unit,
     onPlayRemote: (TrackPreview) -> Unit,
     onPlayLocal: (LocalTrack) -> Unit,
+    favoriteKeys: Set<String>,
+    onToggleFavorite: (TrackPreview) -> Unit,
     onBack: () -> Unit,
 ) {
     var query by rememberSaveable(screen.query) { mutableStateOf(screen.query) }
@@ -763,6 +768,8 @@ private fun SearchScreen(
                         busy = busy,
                         onOpen = { onPlayRemote(it) },
                         onPlay = onPlayRemote,
+                        isFavorite = track.stableKey?.let { it in favoriteKeys },
+                        onToggleFavorite = onToggleFavorite,
                     )
                 }
             }
@@ -790,10 +797,11 @@ private fun FavoritesScreen(
     screen: AppScreen.Favorites,
     busy: Boolean,
     onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
     onPlayAll: () -> Unit,
     onSearchAdd: (String) -> Unit,
     onAdd: (TrackPreview) -> Unit,
-    onRemove: (Int) -> Unit,
+    onRemove: (TrackPreview) -> Unit,
     onClear: () -> Unit,
     onPlayTrack: (TrackPreview) -> Unit,
     onBack: () -> Unit,
@@ -810,7 +818,7 @@ private fun FavoritesScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "${screen.snapshot.tracks.size} из ${screen.snapshot.limit}",
+                        "${screen.snapshot.tracks.size} из ${screen.snapshot.total}",
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
@@ -850,13 +858,22 @@ private fun FavoritesScreen(
                                 modifier = Modifier.weight(1f),
                             ) { Text("▶") }
                             OutlinedButton(
-                                onClick = { onRemove(index) },
+                                onClick = { onRemove(track) },
                                 enabled = !busy,
                                 modifier = Modifier.weight(1f),
                             ) { Text("Убрать") }
                         }
                     }
                 }
+            }
+        }
+        if (screen.snapshot.hasMore) {
+            item {
+                OutlinedButton(
+                    onClick = onLoadMore,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Показать ещё") }
             }
         }
 
@@ -1133,7 +1150,7 @@ private fun PlaylistScreen(
                                     modifier = Modifier.weight(1f),
                                 ) { Text("↓") }
                                 OutlinedButton(
-                                    onClick = { onRemove(index) },
+                                    onClick = { onRemove(track) },
                                     enabled = !busy,
                                     modifier = Modifier.weight(1f),
                                 ) { Text("🗑") }
@@ -1361,10 +1378,20 @@ private fun TrackCardView(
     busy: Boolean,
     onOpen: (TrackPreview) -> Unit,
     onPlay: (TrackPreview) -> Unit,
+    isFavorite: Boolean? = null,
+    onToggleFavorite: ((TrackPreview) -> Unit)? = null,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                if (isFavorite != null && onToggleFavorite != null) {
+                    TextButton(
+                        onClick = { onToggleFavorite(track) },
+                        enabled = !busy && !track.stableKey.isNullOrBlank(),
+                    ) { Text(if (isFavorite) "♥" else "♡") }
+                }
+            }
             Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
@@ -1445,7 +1472,7 @@ private fun NowPlayingScreen(
     onSeekBy: (Long) -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
-    onAddFavorite: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onStop: () -> Unit,
 ) {
     val track = playback.current ?: return
@@ -1518,14 +1545,17 @@ private fun NowPlayingScreen(
                 )
             }
         }
-        if (!playback.isLocal) {
+        if (!playback.isLocal && playback.favoriteSupported) {
             item {
-                OutlinedButton(
-                    onClick = onAddFavorite,
+                TextButton(
+                    onClick = onToggleFavorite,
                     enabled = !playback.connecting,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("♡ Добавить в избранное")
+                    Text(
+                        if (playback.isFavorite) "♥" else "♡",
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
                 }
             }
         }

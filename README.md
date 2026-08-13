@@ -1,5 +1,11 @@
 # Baskov Android
 
+## v0.14.1 — Favorites UX & Scale
+- Favorites are paged instead of product-capped at 100 tracks.
+- Now Playing and remote search use compact `♡` / `♥` toggles with stable-key add/remove semantics.
+- Media3 publishes a favorite custom action for compatible Android system media controls.
+- Favorite membership stays synchronized across app surfaces and the active media session.
+
 ## v0.14.0 — My Music & Servers
 - First-class shared Favorites surface backed by BaskovDiscordBot v1.37.
 - Search/add/remove/clear/play-all for the same favorites used by Discord `/favorites`.
@@ -74,7 +80,7 @@ All v0.7 behavior remains:
 - queue jump/remove;
 - no fake HTTP byte ranges.
 
-The playback user agent is `BaskovAndroid/0.8.0`.
+The playback user agent is `BaskovAndroid/0.14.1`.
 
 ## Build prerequisites
 
@@ -89,4 +95,4 @@ The repository CI runs unit tests, lint, debug APK assembly and unsigned release
 
 ## Backend
 
-BaskovAndroid v0.8.0 targets BaskovDiscordBot `v1.33.0+` through the production HTTPS Product API. Raw Spring port `18080` remains private.
+BaskovAndroid v0.14.1 targets BaskovDiscordBot `v1.37.1+` through the production HTTPS Product API. Raw Spring port `18080` remains private.

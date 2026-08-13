@@ -3,12 +3,14 @@ package ru.flawden.baskovmusic.playback
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +55,15 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
     val state: StateFlow<LocalPlaybackUiState> = mutableState.asStateFlow()
 
     init {
+        scope.launch {
+            FavoriteStateBridge.state.collect { favorite ->
+                val currentKey = mutableState.value.current?.stableKey
+                mutableState.value = mutableState.value.copy(
+                    favoriteSupported = favorite.supported && favorite.stableKey == currentKey,
+                    isFavorite = favorite.supported && favorite.stableKey == currentKey && favorite.favorite,
+                )
+            }
+        }
         controllerFuture.addListener(
             {
                 if (closed) return@addListener
@@ -132,6 +143,15 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             return
         }
         playNow(connected, mediaItems, startIndex)
+    }
+
+    fun toggleFavorite() {
+        val connected = controller ?: return
+        if (!mutableState.value.favoriteSupported) return
+        connected.sendCustomCommand(
+            SessionCommand(PlaybackService.ACTION_TOGGLE_FAVORITE, Bundle.EMPTY),
+            Bundle.EMPTY,
+        )
     }
 
     fun togglePlayPause() {
@@ -407,6 +427,12 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
             resumable = false,
             shuffleEnabled = connected.shuffleModeEnabled,
             repeatMode = connected.repeatMode,
+            favoriteSupported = FavoriteStateBridge.state.value.let { favorite ->
+                favorite.supported && favorite.stableKey == queue.getOrNull(currentIndex)?.stableKey
+            },
+            isFavorite = FavoriteStateBridge.state.value.let { favorite ->
+                favorite.supported && favorite.stableKey == queue.getOrNull(currentIndex)?.stableKey && favorite.favorite
+            },
             canGoPrevious = connected.hasPreviousMediaItem() ||
                 (connected.repeatMode == Player.REPEAT_MODE_ALL && connected.mediaItemCount > 0),
             canGoNext = connected.hasNextMediaItem() ||

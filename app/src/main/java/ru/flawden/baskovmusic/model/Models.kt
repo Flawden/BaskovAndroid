@@ -124,7 +124,10 @@ data class HomeSnapshot(
 data class FavoriteSnapshot(
     val guildId: String,
     val userId: String,
+    val total: Int,
+    val offset: Int,
     val limit: Int,
+    val hasMore: Boolean,
     val tracks: List<TrackPreview>,
 )
 

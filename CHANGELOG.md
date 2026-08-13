@@ -1,3 +1,11 @@
+## 0.14.1 — Favorites UX & Scale
+- Pagination and unbounded total favorites through the v1.37.1 Product API.
+- Icon-only `♡` / `♥` favorite toggle in Now Playing and remote search results.
+- Media3 favorite custom action for supported system media controls.
+- Stable-key removal keeps favorite state independent from list position.
+- Updated playback HTTP user agent to `BaskovAndroid/0.14.1`.
+- Bumped Android app version to `0.14.1` / versionCode `16`.
+
 # Changelog
 ## 0.14.0 — My Music & Servers
 - Added a first-class Favorites screen backed by BaskovDiscordBot v1.37 personal favorites API.

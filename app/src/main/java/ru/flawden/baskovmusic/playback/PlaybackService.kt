@@ -3,6 +3,7 @@ package ru.flawden.baskovmusic.playback
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -16,7 +17,10 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -29,8 +33,10 @@ import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ru.flawden.baskovmusic.MainActivity
+import ru.flawden.baskovmusic.data.BaskovRepository
 import ru.flawden.baskovmusic.data.auth.AuthSessionManager
 import ru.flawden.baskovmusic.data.auth.SessionStore
+import ru.flawden.baskovmusic.model.TrackPreview
 
 /**
  * System-owned Baskov playback surface.
@@ -46,6 +52,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var stateStore: PlaybackStateStore
     private lateinit var authSessionManager: AuthSessionManager
     private lateinit var playbackModeStore: PlaybackModeStore
+    private lateinit var repository: BaskovRepository
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var snapshotJob: Job? = null
     private var authMaintenanceJob: Job? = null
@@ -64,6 +71,7 @@ class PlaybackService : MediaSessionService() {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             normalizeRemoteRepeatOffset(reason)
             persistCurrentState()
+            refreshFavoriteState()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -138,7 +146,9 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         stateStore = PlaybackStateStore(this)
-        authSessionManager = AuthSessionManager(SessionStore(this))
+        val sessionStore = SessionStore(this)
+        authSessionManager = AuthSessionManager(sessionStore)
+        repository = BaskovRepository(sessionStore)
         playbackModeStore = PlaybackModeStore(this)
 
         val dataSourceFactory = DefaultDataSource.Factory(
@@ -177,7 +187,9 @@ class PlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(PlaybackSessionCallback())
             .setSessionActivity(sessionActivity)
+            .setMediaButtonPreferences(listOf(favoriteButton(false)))
             .build()
+        refreshFavoriteState()
 
         PlaybackArtworkBridge.listener = { streamUrl, artworkUrl ->
             serviceScope.launch(Dispatchers.Main.immediate) {
@@ -257,7 +269,87 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun refreshFavoriteState() {
+        val session = mediaSession ?: return
+        val item = session.player.currentMediaItem
+        val stableKey = item?.mediaId?.takeIf { it.isNotBlank() && !it.startsWith("local:") }
+        if (stableKey == null) {
+            FavoriteStateBridge.publish(null, supported = false, favorite = false)
+            session.setMediaButtonPreferences(emptyList())
+            return
+        }
+        serviceScope.launch(Dispatchers.IO) {
+            val guildId = repository.selectedGuildId()
+            val favorite = guildId?.let { runCatching { repository.favoriteStatus(it, stableKey) }.getOrDefault(false) } ?: false
+            launch(Dispatchers.Main.immediate) {
+                if (mediaSession?.player?.currentMediaItem?.mediaId == stableKey) {
+                    FavoriteStateBridge.publish(stableKey, supported = true, favorite = favorite)
+                    mediaSession?.setMediaButtonPreferences(listOf(favoriteButton(favorite)))
+                }
+            }
+        }
+    }
+
+    private fun favoriteButton(favorite: Boolean): CommandButton = CommandButton.Builder(
+        if (favorite) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED,
+    )
+        .setDisplayName(if (favorite) "Убрать из избранного" else "В избранное")
+        .setSessionCommand(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY))
+        .build()
+
     private inner class PlaybackSessionCallback : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult = MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+            .setAvailableSessionCommands(
+                MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                    .add(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY))
+                    .build(),
+            )
+            .build()
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction != ACTION_TOGGLE_FAVORITE) {
+                return super.onCustomCommand(session, controller, customCommand, args)
+            }
+            val item = session.player.currentMediaItem
+                ?: return com.google.common.util.concurrent.Futures.immediateFuture(
+                    SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE),
+                )
+            val stableKey = item.mediaId.takeIf { it.isNotBlank() && !it.startsWith("local:") }
+                ?: return com.google.common.util.concurrent.Futures.immediateFuture(
+                    SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED),
+                )
+            return serviceScope.future(Dispatchers.IO) {
+                val guildId = repository.selectedGuildId()
+                    ?: return@future SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE)
+                val currentlyFavorite = repository.favoriteStatus(guildId, stableKey)
+                if (currentlyFavorite) {
+                    repository.removeFavoriteByStableKey(guildId, stableKey)
+                } else {
+                    repository.addFavorite(
+                        guildId,
+                        TrackPreview(
+                            stableKey = stableKey,
+                            title = item.mediaMetadata.title?.toString(),
+                            artist = item.mediaMetadata.artist?.toString(),
+                        ),
+                    )
+                }
+                serviceScope.launch(Dispatchers.Main.immediate) {
+                    FavoriteStateBridge.publish(stableKey, supported = true, favorite = !currentlyFavorite)
+                    mediaSession?.setMediaButtonPreferences(listOf(favoriteButton(!currentlyFavorite)))
+                }
+                SessionResult(SessionResult.RESULT_SUCCESS)
+            }
+        }
+
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -280,8 +372,9 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private companion object {
-        const val SNAPSHOT_INTERVAL_MILLIS = 5_000L
+    companion object {
+        const val ACTION_TOGGLE_FAVORITE = "ru.flawden.baskovmusic.action.TOGGLE_FAVORITE"
+        private const val SNAPSHOT_INTERVAL_MILLIS = 5_000L
         const val AUTH_CHECK_INTERVAL_MILLIS = 60_000L
         const val MIN_PLAYBACK_ACCESS_VALIDITY_MILLIS = 5 * 60_000L
     }
@@ -291,6 +384,21 @@ class PlaybackService : MediaSessionService() {
  * Keeps the short-lived access token in process memory only. Durable access/refresh credentials
  * remain encrypted by SessionStore/Android Keystore and can be rehydrated after process death.
  */
+internal data class FavoritePlaybackState(
+    val stableKey: String? = null,
+    val supported: Boolean = false,
+    val favorite: Boolean = false,
+)
+
+internal object FavoriteStateBridge {
+    private val mutableState = kotlinx.coroutines.flow.MutableStateFlow(FavoritePlaybackState())
+    val state: kotlinx.coroutines.flow.StateFlow<FavoritePlaybackState> = mutableState
+
+    fun publish(stableKey: String?, supported: Boolean, favorite: Boolean) {
+        mutableState.value = FavoritePlaybackState(stableKey, supported, favorite)
+    }
+}
+
 internal object PlaybackArtworkBridge {
     @Volatile
     var listener: ((streamUrl: String, artworkUrl: String) -> Unit)? = null
@@ -323,7 +431,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.14.0")
+        .setUserAgent("BaskovAndroid/0.14.1")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")

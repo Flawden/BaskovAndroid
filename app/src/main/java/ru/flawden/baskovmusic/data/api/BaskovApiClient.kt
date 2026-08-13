@@ -78,12 +78,40 @@ class BaskovApiClient(
             accessToken = accessToken,
         ).toLibrary()
 
-    suspend fun favorites(accessToken: String, guildId: String): FavoriteSnapshot =
-        requestJson(
+    suspend fun favorites(
+        accessToken: String,
+        guildId: String,
+        offset: Int? = null,
+        limit: Int? = null,
+    ): FavoriteSnapshot {
+        val paging = buildString {
+            offset?.let { append("&offset=${it.coerceAtLeast(0)}") }
+            limit?.let { append("&limit=${it.coerceIn(1, 100)}") }
+        }
+        return requestJson(
             "GET",
-            "api/v1/favorites?guildId=${encodeQuery(guildId)}",
+            "api/v1/favorites?guildId=${encodeQuery(guildId)}$paging",
             accessToken = accessToken,
         ).toFavorites()
+    }
+
+    suspend fun favoriteKeys(accessToken: String, guildId: String): Set<String> =
+        requestJson(
+            "GET",
+            "api/v1/favorites/keys?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).getJSONArray("stableKeys").let { rows ->
+            buildSet {
+                for (index in 0 until rows.length()) add(rows.getString(index))
+            }
+        }
+
+    suspend fun favoriteStatus(accessToken: String, guildId: String, stableKey: String): Boolean =
+        requestJson(
+            "GET",
+            "api/v1/favorites/status?guildId=${encodeQuery(guildId)}&stableKey=${encodeQuery(stableKey)}",
+            accessToken = accessToken,
+        ).optBoolean("favorite", false)
 
     suspend fun addFavorite(
         accessToken: String,
@@ -107,6 +135,16 @@ class BaskovApiClient(
         "api/v1/favorites/$oneBasedPosition?guildId=${encodeQuery(guildId)}",
         accessToken = accessToken,
     ).toFavorites()
+
+    suspend fun removeFavoriteByStableKey(
+        accessToken: String,
+        guildId: String,
+        stableKey: String,
+    ): Boolean = !requestJson(
+        "DELETE",
+        "api/v1/favorites/by-key?guildId=${encodeQuery(guildId)}&stableKey=${encodeQuery(stableKey)}",
+        accessToken = accessToken,
+    ).optBoolean("favorite", true)
 
     suspend fun clearFavorites(accessToken: String, guildId: String): FavoriteSnapshot =
         requestJson(
@@ -318,12 +356,18 @@ class BaskovApiClient(
         historyTracks = getJSONArray("historyTracks").mapTracks(),
     )
 
-    private fun JSONObject.toFavorites() = FavoriteSnapshot(
-        guildId = getString("guildId"),
-        userId = getString("userId"),
-        limit = optInt("limit", 100),
-        tracks = getJSONArray("tracks").mapTracks(),
-    )
+    private fun JSONObject.toFavorites(): FavoriteSnapshot {
+        val tracks = getJSONArray("tracks").mapTracks()
+        return FavoriteSnapshot(
+            guildId = getString("guildId"),
+            userId = getString("userId"),
+            total = optInt("total", tracks.size),
+            offset = optInt("offset", 0),
+            limit = optInt("limit", tracks.size),
+            hasMore = optBoolean("hasMore", false),
+            tracks = tracks,
+        )
+    }
 
     private fun JSONObject.toPlayer() = RemotePlayerSnapshot(
         guildId = getString("guildId"),
