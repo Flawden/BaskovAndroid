@@ -1150,7 +1150,7 @@ private fun PlaylistScreen(
                                     modifier = Modifier.weight(1f),
                                 ) { Text("↓") }
                                 OutlinedButton(
-                                    onClick = { onRemove(track) },
+                                    onClick = { onRemove(index) },
                                     enabled = !busy,
                                     modifier = Modifier.weight(1f),
                                 ) { Text("🗑") }

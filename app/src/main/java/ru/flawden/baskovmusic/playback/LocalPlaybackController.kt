@@ -477,6 +477,8 @@ data class LocalPlaybackUiState(
     val resumable: Boolean = false,
     val shuffleEnabled: Boolean = false,
     @Player.RepeatMode val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val favoriteSupported: Boolean = false,
+    val isFavorite: Boolean = false,
     val canGoPrevious: Boolean = false,
     val canGoNext: Boolean = false,
     val error: String? = null,
