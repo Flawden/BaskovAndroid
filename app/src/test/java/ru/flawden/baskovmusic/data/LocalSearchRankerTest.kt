@@ -20,6 +20,19 @@ class LocalSearchRankerTest {
     }
 
     @Test
+    fun cyrillicSingleSubstitutionMatchesWordInsideLongerTitle() {
+        val tracks = listOf(
+            track(1, "07 - Дует Ветер Ледяной", "Эпидемия"),
+            track(2, "Михайлов Стас - Ветер", "Unknown artist"),
+        )
+
+        val result = LocalSearchRanker.search(tracks, "ветир")
+
+        assertTrue(result.isNotEmpty())
+        assertEquals(1L, result.first().id)
+    }
+
+    @Test
     fun adjacentTranspositionInArtistQueryIsTolerated() {
         val tracks = listOf(
             track(1, "Holiday", "Green Day"),

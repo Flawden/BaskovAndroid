@@ -1,5 +1,6 @@
 ## 0.16.0 — Search v2: Fuzzy & Ranked Local Search
 - Replaced local-library substring filtering with ranked typo-tolerant search across title, artist and album.
+- Fixed the dedicated `Музыка на телефоне` screen to use the same Search v2 ranker as the combined Search screen; real-device smoke now covers typos such as `ветир` → `Ветер`.
 - Exact title/prefix matches outrank fuzzy matches; artist and album matches use lower weights to keep results intuitive.
 - Added token-aware matching so combined queries such as `Skillet Monster` rank the intended track first.
 - Added Damerau-Levenshtein tolerance for common misspellings and adjacent transpositions such as `Прывет` → `Привет` and `Green Dya` → `Green Day`.

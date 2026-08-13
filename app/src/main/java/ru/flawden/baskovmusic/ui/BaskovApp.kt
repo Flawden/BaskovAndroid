@@ -57,6 +57,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import androidx.media3.common.Player
 import ru.flawden.baskovmusic.R
+import ru.flawden.baskovmusic.data.LocalSearchRanker
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.MixCard
@@ -532,11 +533,7 @@ private fun LocalMusicScreen(
         if (needle.isBlank()) {
             folderTracks
         } else {
-            folderTracks.filter { track ->
-                track.title.contains(needle, ignoreCase = true) ||
-                    track.artist.contains(needle, ignoreCase = true) ||
-                    track.album?.contains(needle, ignoreCase = true) == true
-            }
+            LocalSearchRanker.search(folderTracks, needle, limit = 200)
         }
     }
 
