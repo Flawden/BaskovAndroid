@@ -1,3 +1,8 @@
+## 0.14.2 — Media Controls Polish
+- Preferred the Media3 forward-secondary slot for the system `♡` / `♥` favorite action so compatible notification/lock-screen surfaces place it to the right of the primary transport controls.
+- Kept overflow as a compatibility fallback for OEM/system surfaces without that secondary slot.
+- Updated playback HTTP user agent to `BaskovAndroid/0.14.2`.
+- Bumped Android app version to `0.14.2` / versionCode `17`.
 ## 0.14.1 — Favorites UX & Scale
 - Pagination and unbounded total favorites through the v1.37.1 Product API.
 - Icon-only `♡` / `♥` favorite toggle in Now Playing and remote search results.

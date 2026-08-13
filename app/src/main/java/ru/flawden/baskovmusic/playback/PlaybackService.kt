@@ -296,6 +296,7 @@ class PlaybackService : MediaSessionService() {
     )
         .setDisplayName(if (favorite) "Убрать из избранного" else "В избранное")
         .setSessionCommand(SessionCommand(ACTION_TOGGLE_FAVORITE, Bundle.EMPTY))
+        .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
         .build()
 
     private inner class PlaybackSessionCallback : MediaSession.Callback {
@@ -432,7 +433,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.14.1")
+        .setUserAgent("BaskovAndroid/0.14.2")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")

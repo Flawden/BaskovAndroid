@@ -1,5 +1,9 @@
 # Baskov Android
 
+## v0.14.2 — Media Controls Polish
+- Favorite media action prefers the forward-secondary system-control slot, placing `♡` / `♥` to the right of the primary transport controls when the Android/OEM surface supports that slot.
+- Overflow remains the fallback on system surfaces that do not expose a forward-secondary slot.
+- Playback, favorites semantics and the frozen v1.37.1 backend contract are unchanged.
 ## v0.14.1 — Favorites UX & Scale
 - Favorites are paged instead of product-capped at 100 tracks.
 - Now Playing and remote search use compact `♡` / `♥` toggles with stable-key add/remove semantics.
@@ -80,7 +84,7 @@ All v0.7 behavior remains:
 - queue jump/remove;
 - no fake HTTP byte ranges.
 
-The playback user agent is `BaskovAndroid/0.14.1`.
+The playback user agent is `BaskovAndroid/0.14.2`.
 
 ## Build prerequisites
 
@@ -95,4 +99,4 @@ The repository CI runs unit tests, lint, debug APK assembly and unsigned release
 
 ## Backend
 
-BaskovAndroid v0.14.1 targets BaskovDiscordBot `v1.37.1+` through the production HTTPS Product API. Raw Spring port `18080` remains private.
+BaskovAndroid v0.14.2 targets BaskovDiscordBot `v1.37.1+` through the production HTTPS Product API. Raw Spring port `18080` remains private.
