@@ -1,5 +1,8 @@
 package ru.flawden.baskovmusic.model
 
+import java.security.MessageDigest
+import java.util.Locale
+
 data class SessionTokens(
     val userId: String,
     val sessionId: String,
@@ -38,13 +41,57 @@ data class LocalTrack(
     val artworkUri: String?,
     val folderPath: String,
 ) {
+    val tasteStableKey: String
+        get() {
+            val canonical = listOf(
+                artist.tasteIdentityPart(),
+                title.tasteIdentityPart(),
+                album.tasteIdentityPart(),
+                durationMillis.coerceAtLeast(0L).toString(),
+            ).joinToString("|")
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(canonical.toByteArray(Charsets.UTF_8))
+                .joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }
+            return "local:v1:$digest"
+        }
+
     val preview: TrackPreview
         get() = TrackPreview(
-            stableKey = "local:$id",
+            stableKey = tasteStableKey,
             title = title,
             artist = artist,
         )
 }
+
+enum class TasteSignalType {
+    PLAY,
+    COMPLETED,
+    REPLAY,
+    QUICK_SKIP,
+    STOP_EARLY,
+    FAVORITE_ADD,
+    FAVORITE_REMOVE,
+}
+
+enum class TasteSignalSource {
+    LOCAL,
+    REMOTE,
+}
+
+data class TasteSignal(
+    val type: TasteSignalType,
+    val source: TasteSignalSource,
+    val stableKey: String?,
+    val artist: String,
+    val title: String,
+    val completionRatio: Double,
+)
+
+private fun String?.tasteIdentityPart(): String = this
+    .orEmpty()
+    .trim()
+    .lowercase(Locale.ROOT)
+    .replace(Regex("\\s+"), " ")
 
 data class LocalMusicFolder(
     val path: String,

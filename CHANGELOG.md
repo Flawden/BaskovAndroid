@@ -1,3 +1,12 @@
+## 0.15.0 — Taste Signals Foundation
+- Added a durable device-side taste-signal queue that commits listening feedback locally before attempting authenticated Product API delivery.
+- Local and remote playback now emit bounded `PLAY`, completion, replay, quick-skip and early-stop signals into BaskovDiscordBot v1.38 personal taste profiles.
+- Favorite add/remove actions from app surfaces and Media3 system controls feed the same taste queue.
+- Local track identity now uses a normalized SHA-256 metadata fingerprint over artist, title, album and duration instead of a transient MediaStore row id.
+- Queued signals survive offline periods/process recreation and flush in Product API batches of at most 50; the local queue is bounded to 500 pending events.
+- Updated playback HTTP user agent to `BaskovAndroid/0.15.0`.
+- Bumped Android app version to `0.15.0` / versionCode `18`.
+
 ## 0.14.2 — Media Controls Polish
 - Preferred the Media3 forward-secondary slot for the system `♡` / `♥` favorite action so compatible notification/lock-screen surfaces place it to the right of the primary transport controls.
 - Kept overflow as a compatibility fallback for OEM/system surfaces without that secondary slot.

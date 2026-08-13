@@ -17,6 +17,7 @@ import ru.flawden.baskovmusic.model.MixesSnapshot
 import ru.flawden.baskovmusic.model.SessionTokens
 import ru.flawden.baskovmusic.model.SharedPlaylistDetail
 import ru.flawden.baskovmusic.model.SharedPlaylistSummary
+import ru.flawden.baskovmusic.model.TasteSignal
 import ru.flawden.baskovmusic.model.TasteSummary
 import ru.flawden.baskovmusic.model.ThemeAffinity
 import ru.flawden.baskovmusic.model.TrackPreview
@@ -152,6 +153,35 @@ class BaskovApiClient(
             "api/v1/favorites?guildId=${encodeQuery(guildId)}",
             accessToken = accessToken,
         ).toFavorites()
+
+    suspend fun recordTasteSignals(
+        accessToken: String,
+        guildId: String,
+        events: List<TasteSignal>,
+    ) {
+        if (events.isEmpty()) return
+        require(events.size <= 50) { "Taste signal batch cannot exceed 50 events" }
+        val rows = JSONArray()
+        events.forEach { event ->
+            rows.put(
+                JSONObject()
+                    .put("type", event.type.name)
+                    .put("source", event.source.name)
+                    .apply {
+                        event.stableKey?.takeIf(String::isNotBlank)?.let { put("stableKey", it) }
+                    }
+                    .put("artist", event.artist)
+                    .put("title", event.title)
+                    .put("completionRatio", event.completionRatio.coerceIn(0.0, 1.0)),
+            )
+        }
+        requestJson(
+            "POST",
+            "api/v1/taste/events?guildId=${encodeQuery(guildId)}",
+            body = JSONObject().put("events", rows),
+            accessToken = accessToken,
+        )
+    }
 
     suspend fun player(accessToken: String, guildId: String): RemotePlayerSnapshot =
         requestJson(

@@ -126,7 +126,7 @@ class LocalPlaybackController(context: Context) : Player.Listener, AutoCloseable
                 .build()
             MediaItem.Builder()
                 .setUri(track.contentUri)
-                .setMediaId("local:${track.id}")
+                .setMediaId(track.tasteStableKey)
                 .setMediaMetadata(metadata)
                 .build()
         }

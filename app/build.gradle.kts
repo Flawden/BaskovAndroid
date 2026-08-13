@@ -14,8 +14,8 @@ android {
         applicationId = "ru.flawden.baskovmusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.14.2"
+        versionCode = 18
+        versionName = "0.15.0"
         buildConfigField(
             "String",
             "BASKOV_API_BASE_URL",

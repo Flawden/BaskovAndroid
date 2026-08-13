@@ -13,6 +13,7 @@ import ru.flawden.baskovmusic.BuildConfig
 import ru.flawden.baskovmusic.data.BaskovRepository
 import ru.flawden.baskovmusic.data.LocalMusicRepository
 import ru.flawden.baskovmusic.data.LocalMusicSettingsStore
+import ru.flawden.baskovmusic.data.TasteSignalReporter
 import ru.flawden.baskovmusic.data.api.PairingCodePolicy
 import ru.flawden.baskovmusic.data.api.ServerUrlPolicy
 import ru.flawden.baskovmusic.data.auth.SessionStore
@@ -21,6 +22,9 @@ import ru.flawden.baskovmusic.model.GuildSummary
 import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.MixCard
 import ru.flawden.baskovmusic.model.SharedPlaylistSummary
+import ru.flawden.baskovmusic.model.TasteSignal
+import ru.flawden.baskovmusic.model.TasteSignalSource
+import ru.flawden.baskovmusic.model.TasteSignalType
 import ru.flawden.baskovmusic.model.TrackPreview
 import ru.flawden.baskovmusic.playback.LocalPlaybackController
 import ru.flawden.baskovmusic.playback.FavoriteStateBridge
@@ -30,6 +34,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     private val repository = BaskovRepository(SessionStore(application))
     private val localMusicRepository = LocalMusicRepository(application)
     private val localMusicSettings = LocalMusicSettingsStore(application)
+    private val tasteSignals = TasteSignalReporter(application, repository)
     private val mutableState = MutableStateFlow(AppUiState())
     private val backStack = ArrayDeque<AppScreen>()
     private val playback = LocalPlaybackController(application)
@@ -38,6 +43,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     val playbackState: StateFlow<LocalPlaybackUiState> = playback.state
 
     init {
+        viewModelScope.launch { tasteSignals.flush() }
         viewModelScope.launch {
             FavoriteStateBridge.state.collect { favorite ->
                 val stableKey = favorite.stableKey ?: return@collect
@@ -129,6 +135,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
     fun addFavorite(track: TrackPreview) = launchBusy {
         val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
         repository.addFavorite(current.guild.guildId, track)
+        recordFavoriteTaste(current.guild.guildId, track, favorite = true)
         setScreen(current.copy(snapshot = repository.favorites(current.guild.guildId)))
         syncFavoriteKeys(current.guild.guildId)
         setNotice("Добавлено в избранное")
@@ -138,6 +145,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
         val stableKey = requireNotNull(track.stableKey) { "Favorite stableKey is required" }
         repository.removeFavoriteByStableKey(current.guild.guildId, stableKey)
+        recordFavoriteTaste(current.guild.guildId, track, favorite = false)
         setScreen(current.copy(snapshot = repository.favorites(current.guild.guildId)))
         syncFavoriteKeys(current.guild.guildId)
         setNotice("Удалено из избранного")
@@ -427,6 +435,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         } else {
             repository.removeFavoriteByStableKey(context.guild.guildId, stableKey)
         }
+        recordFavoriteTaste(context.guild.guildId, track, favorite)
         applyFavoriteKeys(
             if (favorite) mutableState.value.favoriteKeys + stableKey
             else mutableState.value.favoriteKeys - stableKey,
@@ -511,6 +520,22 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         }
         setScreen(AppScreen.Home(account, selected, repository.home(selected.guildId)))
         syncFavoriteKeys(selected.guildId)
+    }
+
+    private fun recordFavoriteTaste(guildId: String, track: TrackPreview, favorite: Boolean) {
+        val title = track.title?.takeIf(String::isNotBlank) ?: return
+        tasteSignals.enqueue(
+            guildId,
+            TasteSignal(
+                type = if (favorite) TasteSignalType.FAVORITE_ADD else TasteSignalType.FAVORITE_REMOVE,
+                source = TasteSignalSource.REMOTE,
+                stableKey = track.stableKey,
+                artist = track.artist.orEmpty().ifBlank { "Неизвестно" },
+                title = title,
+                completionRatio = 1.0,
+            ),
+        )
+        viewModelScope.launch { tasteSignals.flush() }
     }
 
     private suspend fun syncFavoriteKeys(guildId: String) {

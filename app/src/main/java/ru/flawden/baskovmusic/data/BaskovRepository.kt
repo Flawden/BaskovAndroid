@@ -16,6 +16,7 @@ import ru.flawden.baskovmusic.model.PlaybackQueueItem
 import ru.flawden.baskovmusic.model.PlaybackQueueSpec
 import ru.flawden.baskovmusic.model.SharedPlaylistDetail
 import ru.flawden.baskovmusic.model.SharedPlaylistSummary
+import ru.flawden.baskovmusic.model.TasteSignal
 import ru.flawden.baskovmusic.model.TrackPreview
 
 class BaskovRepository(
@@ -63,6 +64,13 @@ class BaskovRepository(
 
     suspend fun clearFavorites(guildId: String): FavoriteSnapshot =
         authenticated { client, token -> client.clearFavorites(token, guildId) }
+
+    suspend fun recordTasteSignals(guildId: String, events: List<TasteSignal>) {
+        if (events.isEmpty()) return
+        authenticated<Unit> { client, token ->
+            client.recordTasteSignals(token, guildId, events)
+        }
+    }
 
     suspend fun player(guildId: String): RemotePlayerSnapshot =
         authenticated { client, token -> client.player(token, guildId) }

@@ -1,4 +1,9 @@
 # Baskov Android
+## v0.15.0 — Taste Signals Foundation
+- Local and remote listening behavior now contributes to the same personal taste model used by Baskov recommendations.
+- Playback/favorite events are persisted in a bounded offline queue and delivered in authenticated batches to BaskovDiscordBot v1.38.
+- Local tracks use a stable metadata fingerprint (`artist + title + album + duration`) rather than MediaStore row identity for taste matching.
+
 
 ## v0.14.2 — Media Controls Polish
 - Favorite media action prefers the forward-secondary system-control slot, placing `♡` / `♥` to the right of the primary transport controls when the Android/OEM surface supports that slot.
@@ -84,7 +89,7 @@ All v0.7 behavior remains:
 - queue jump/remove;
 - no fake HTTP byte ranges.
 
-The playback user agent is `BaskovAndroid/0.14.2`.
+The playback user agent is `BaskovAndroid/0.15.0`.
 
 ## Build prerequisites
 
@@ -99,4 +104,4 @@ The repository CI runs unit tests, lint, debug APK assembly and unsigned release
 
 ## Backend
 
-BaskovAndroid v0.14.2 targets BaskovDiscordBot `v1.37.1+` through the production HTTPS Product API. Raw Spring port `18080` remains private.
+BaskovAndroid v0.15.0 targets BaskovDiscordBot `v1.38.0+` through the production HTTPS Product API. Raw Spring port `18080` remains private.

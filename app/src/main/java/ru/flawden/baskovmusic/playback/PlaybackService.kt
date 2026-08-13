@@ -35,8 +35,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ru.flawden.baskovmusic.MainActivity
 import ru.flawden.baskovmusic.data.BaskovRepository
+import ru.flawden.baskovmusic.data.TasteSignalReporter
 import ru.flawden.baskovmusic.data.auth.AuthSessionManager
 import ru.flawden.baskovmusic.data.auth.SessionStore
+import ru.flawden.baskovmusic.model.TasteSignal
+import ru.flawden.baskovmusic.model.TasteSignalSource
+import ru.flawden.baskovmusic.model.TasteSignalType
 import ru.flawden.baskovmusic.model.TrackPreview
 
 /**
@@ -54,6 +58,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var authSessionManager: AuthSessionManager
     private lateinit var playbackModeStore: PlaybackModeStore
     private lateinit var repository: BaskovRepository
+    private lateinit var tasteSignals: TasteSignalReporter
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var snapshotJob: Job? = null
     private var authMaintenanceJob: Job? = null
@@ -64,27 +69,66 @@ class PlaybackService : MediaSessionService() {
     @Volatile
     private var hasRemotePlaybackQueue = false
 
+    private var activeTasteTrack: ActiveTasteTrack? = null
+
     private val persistenceListener = object : Player.Listener {
         override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            sampleTasteProgress()
+            val player = mediaSession?.player
+            if (player != null && player.mediaItemCount == 0 && activeTasteTrack != null) {
+                finishTasteTrack(classifyEarlyOutcome(activeTasteTrack!!))
+            }
             persistCurrentState()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            sampleTasteProgress()
+            val previous = activeTasteTrack
+            val sameTrack = previous != null && mediaItem?.mediaId == previous.stableKey
+            when {
+                previous == null -> startTasteTrack(mediaItem)
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> {
+                    finishTasteTrack(TasteSignalType.REPLAY)
+                    startTasteTrack(mediaItem)
+                }
+                sameTrack -> Unit
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> {
+                    finishTasteTrack(TasteSignalType.COMPLETED)
+                    startTasteTrack(mediaItem)
+                }
+                else -> {
+                    finishTasteTrack(classifyEarlyOutcome(previous))
+                    startTasteTrack(mediaItem)
+                }
+            }
             normalizeRemoteRepeatOffset(reason)
             persistCurrentState()
             refreshFavoriteState()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying && activeTasteTrack == null) {
+                startTasteTrack(mediaSession?.player?.currentMediaItem)
+            }
+            sampleTasteProgress()
             persistCurrentState()
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            sampleTasteProgress()
             persistCurrentState()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_ENDED) {
+            sampleTasteProgress()
+            if (playbackState == Player.STATE_ENDED && activeTasteTrack != null) {
+                val player = mediaSession?.player
+                val outcome = if (player?.repeatMode == Player.REPEAT_MODE_OFF) {
+                    TasteSignalType.COMPLETED
+                } else {
+                    TasteSignalType.REPLAY
+                }
+                finishTasteTrack(outcome)
                 recoverRepeatAtEnd()
             }
             persistCurrentState()
@@ -150,6 +194,8 @@ class PlaybackService : MediaSessionService() {
         val sessionStore = SessionStore(this)
         authSessionManager = AuthSessionManager(sessionStore)
         repository = BaskovRepository(sessionStore)
+        tasteSignals = TasteSignalReporter(this, repository)
+        serviceScope.launch(Dispatchers.IO) { tasteSignals.flush() }
         playbackModeStore = PlaybackModeStore(this)
 
         val dataSourceFactory = DefaultDataSource.Factory(
@@ -227,6 +273,7 @@ class PlaybackService : MediaSessionService() {
         persistCurrentState()
         snapshotJob?.cancel()
         authMaintenanceJob?.cancel()
+        activeTasteTrack = null
         mediaSession?.run {
             player.removeListener(persistenceListener)
             player.release()
@@ -243,6 +290,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun persistCurrentState() {
         val player = mediaSession?.player ?: return
+        sampleTasteProgress()
         hasPlaybackQueue = player.mediaItemCount > 0 && player.playbackState != Player.STATE_ENDED
         hasRemotePlaybackQueue = hasPlaybackQueue && (0 until player.mediaItemCount).any { index ->
             player.getMediaItemAt(index).localConfiguration?.uri?.toString()
@@ -267,6 +315,58 @@ class PlaybackService : MediaSessionService() {
                 index,
                 item.buildUpon().setMediaMetadata(metadata).build(),
             )
+        }
+    }
+
+    private fun startTasteTrack(mediaItem: MediaItem?) {
+        val next = mediaItem?.toActiveTasteTrack() ?: return
+        val existing = activeTasteTrack
+        if (existing != null && existing.stableKey == next.stableKey && existing.source == next.source) return
+        activeTasteTrack = next
+        queueTasteSignal(next.toSignal(TasteSignalType.PLAY, 0.0))
+    }
+
+    private fun sampleTasteProgress() {
+        val active = activeTasteTrack ?: return
+        val player = mediaSession?.player ?: return
+        val item = player.currentMediaItem ?: return
+        if (item.mediaId != active.stableKey) return
+        active.maxPositionMillis = maxOf(active.maxPositionMillis, player.currentPosition.coerceAtLeast(0L))
+        val uri = item.localConfiguration?.uri?.toString()
+        val serverDuration = if (uri != null && PlaybackStreamUrl.isRemoteHttp(uri)) {
+            PlaybackStreamMetrics.durationMillis(uri)
+        } else {
+            0L
+        }
+        val nativeDuration = player.duration.takeIf { it > 0L } ?: 0L
+        active.durationMillis = maxOf(active.durationMillis, serverDuration, nativeDuration)
+    }
+
+    private fun finishTasteTrack(type: TasteSignalType) {
+        val active = activeTasteTrack ?: return
+        activeTasteTrack = null
+        val ratio = when (type) {
+            TasteSignalType.COMPLETED,
+            TasteSignalType.REPLAY -> 1.0
+            else -> active.completionRatio()
+        }
+        queueTasteSignal(active.toSignal(type, ratio))
+    }
+
+    private fun classifyEarlyOutcome(active: ActiveTasteTrack): TasteSignalType =
+        if (active.maxPositionMillis <= QUICK_SKIP_MAX_MILLIS ||
+            active.completionRatio() <= QUICK_SKIP_MAX_RATIO
+        ) {
+            TasteSignalType.QUICK_SKIP
+        } else {
+            TasteSignalType.STOP_EARLY
+        }
+
+    private fun queueTasteSignal(event: TasteSignal) {
+        serviceScope.launch(Dispatchers.IO) {
+            val guildId = repository.selectedGuildId() ?: return@launch
+            tasteSignals.enqueue(guildId, event)
+            tasteSignals.flush()
         }
     }
 
@@ -332,18 +432,28 @@ class PlaybackService : MediaSessionService() {
                 val guildId = repository.selectedGuildId()
                     ?: return@future SessionResult(SessionError.ERROR_BAD_VALUE)
                 val currentlyFavorite = repository.favoriteStatus(guildId, stableKey)
+                val tasteTrack = TrackPreview(
+                    stableKey = stableKey,
+                    title = item.mediaMetadata.title?.toString(),
+                    artist = item.mediaMetadata.artist?.toString(),
+                )
                 if (currentlyFavorite) {
                     repository.removeFavoriteByStableKey(guildId, stableKey)
                 } else {
-                    repository.addFavorite(
-                        guildId,
-                        TrackPreview(
-                            stableKey = stableKey,
-                            title = item.mediaMetadata.title?.toString(),
-                            artist = item.mediaMetadata.artist?.toString(),
-                        ),
-                    )
+                    repository.addFavorite(guildId, tasteTrack)
                 }
+                tasteSignals.enqueue(
+                    guildId,
+                    TasteSignal(
+                        type = if (currentlyFavorite) TasteSignalType.FAVORITE_REMOVE else TasteSignalType.FAVORITE_ADD,
+                        source = TasteSignalSource.REMOTE,
+                        stableKey = stableKey,
+                        artist = tasteTrack.artist.orEmpty().ifBlank { "Неизвестно" },
+                        title = tasteTrack.title.orEmpty().ifBlank { "Неизвестно" },
+                        completionRatio = 1.0,
+                    ),
+                )
+                serviceScope.launch { tasteSignals.flush() }
                 serviceScope.launch(Dispatchers.Main.immediate) {
                     FavoriteStateBridge.publish(stableKey, supported = true, favorite = !currentlyFavorite)
                     mediaSession?.setMediaButtonPreferences(listOf(favoriteButton(!currentlyFavorite)))
@@ -379,6 +489,8 @@ class PlaybackService : MediaSessionService() {
         private const val SNAPSHOT_INTERVAL_MILLIS = 5_000L
         const val AUTH_CHECK_INTERVAL_MILLIS = 60_000L
         const val MIN_PLAYBACK_ACCESS_VALIDITY_MILLIS = 5 * 60_000L
+        private const val QUICK_SKIP_MAX_MILLIS = 30_000L
+        private const val QUICK_SKIP_MAX_RATIO = 0.25
     }
 }
 
@@ -386,6 +498,45 @@ class PlaybackService : MediaSessionService() {
  * Keeps the short-lived access token in process memory only. Durable access/refresh credentials
  * remain encrypted by SessionStore/Android Keystore and can be rehydrated after process death.
  */
+private data class ActiveTasteTrack(
+    val stableKey: String,
+    val source: TasteSignalSource,
+    val artist: String,
+    val title: String,
+    var maxPositionMillis: Long = 0L,
+    var durationMillis: Long = 0L,
+) {
+    fun completionRatio(): Double =
+        if (durationMillis <= 0L) 0.0
+        else (maxPositionMillis / durationMillis.toDouble()).coerceIn(0.0, 1.0)
+
+    fun toSignal(type: TasteSignalType, ratio: Double): TasteSignal = TasteSignal(
+        type = type,
+        source = source,
+        stableKey = stableKey.takeIf { source == TasteSignalSource.LOCAL || !it.startsWith("baskov-") },
+        artist = artist,
+        title = title,
+        completionRatio = ratio.coerceIn(0.0, 1.0),
+    )
+}
+
+private fun MediaItem.toActiveTasteTrack(): ActiveTasteTrack? {
+    val uri = localConfiguration?.uri?.toString()
+    val source = if (uri != null && PlaybackStreamUrl.isRemoteHttp(uri)) {
+        TasteSignalSource.REMOTE
+    } else {
+        TasteSignalSource.LOCAL
+    }
+    val key = mediaId.takeIf(String::isNotBlank) ?: return null
+    if (source == TasteSignalSource.LOCAL && !key.startsWith("local:")) return null
+    return ActiveTasteTrack(
+        stableKey = key,
+        source = source,
+        artist = mediaMetadata.artist?.toString().orEmpty().ifBlank { "Неизвестно" },
+        title = mediaMetadata.title?.toString().orEmpty().ifBlank { "Неизвестно" },
+    )
+}
+
 internal data class FavoritePlaybackState(
     val stableKey: String? = null,
     val supported: Boolean = false,
@@ -433,7 +584,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.14.2")
+        .setUserAgent("BaskovAndroid/0.15.0")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")
