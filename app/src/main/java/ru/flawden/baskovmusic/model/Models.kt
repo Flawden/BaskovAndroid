@@ -121,6 +121,27 @@ data class HomeSnapshot(
     val taste: TasteSummary,
 )
 
+data class FavoriteSnapshot(
+    val guildId: String,
+    val userId: String,
+    val limit: Int,
+    val tracks: List<TrackPreview>,
+)
+
+data class RemotePlayerSnapshot(
+    val guildId: String,
+    val sessionActive: Boolean,
+    val playing: Boolean,
+    val paused: Boolean,
+    val queueSize: Int,
+    val current: TrackPreview?,
+)
+
+data class ServerHubItem(
+    val guild: GuildSummary,
+    val player: RemotePlayerSnapshot?,
+)
+
 data class SharedPlaylistSummary(
     val name: String,
     val ownerUserId: String,

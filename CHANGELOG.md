@@ -1,4 +1,13 @@
 # Changelog
+## 0.14.0 — My Music & Servers
+- Added a first-class Favorites screen backed by BaskovDiscordBot v1.37 personal favorites API.
+- Favorites created or removed on Android mutate the same ordered per-user list used by Discord `/favorites`.
+- Added remote search-and-add, play-all, ordered removal and clear actions for favorites.
+- Added a Now Playing action for adding the current remote Baskov track to favorites; local `content://` files stay device-only.
+- Added a Servers hub using existing authenticated guild discovery plus read-only player snapshots for each accessible Discord server.
+- Reorganized Home around Search, Favorites, Playlists, Servers, local music, history and recommendations.
+- Updated playback HTTP user agent to `BaskovAndroid/0.14.0`.
+- Bumped Android app version to `0.14.0` / versionCode `15`.
 ## 0.13.0 — Shared Playlists
 - Added server-backed shared playlist list/detail/create/edit/delete surfaces.
 - Android and Discord now use the same guild playlist persistence through BaskovDiscordBot v1.36 Product API.

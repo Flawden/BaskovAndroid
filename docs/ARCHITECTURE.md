@@ -54,3 +54,10 @@ Shuffle and repeat are Media3 player properties owned by the same `MediaSessionS
 ## Shared playlists (v0.13)
 
 `BaskovApiClient` talks to the owner-scoped Product API playlist surface. The backend reuses the existing Discord `MusicLibraryRepository`; Android does not maintain a second playlist database. Playlist tracks are provider-neutral in the mobile model and are resolved/persisted server-side. Phone-local `content://` tracks remain outside shared playlists until the future upload/handoff transport.
+
+
+## Personal library and server hub (v0.14)
+
+Favorites remain backend-owned and keyed by the linked Discord identity plus guild. Android only renders and invokes the bounded Product API mutation surface; it does not create a second favorite store. Remote Now Playing can add the current provider-neutral track, while local `content://` media remains device-only.
+
+The Servers hub reuses existing authenticated `/guilds` discovery and read-only `/player` snapshots. Selecting another server updates the persisted guild context and deliberately stops phone playback before loading the new Home. Voice/player mutations remain outside v0.14 and require a later permission-aware remote-control contract.

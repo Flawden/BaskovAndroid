@@ -2,6 +2,8 @@ package ru.flawden.baskovmusic.ui
 
 import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
+import ru.flawden.baskovmusic.model.FavoriteSnapshot
+import ru.flawden.baskovmusic.model.ServerHubItem
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.LibrarySnapshot
 import ru.flawden.baskovmusic.model.LocalMusicFolder
@@ -35,6 +37,19 @@ sealed interface AppScreen {
         val localResults: List<LocalTrack> = emptyList(),
         val searched: Boolean = false,
     ) : AppScreen
+    data class Favorites(
+        val account: AccountInfo,
+        val guild: GuildSummary,
+        val snapshot: FavoriteSnapshot,
+        val addQuery: String = "",
+        val addResults: List<TrackPreview> = emptyList(),
+        val addSearched: Boolean = false,
+    ) : AppScreen
+    data class Servers(
+        val account: AccountInfo,
+        val currentGuild: GuildSummary,
+        val servers: List<ServerHubItem>,
+    ) : AppScreen
     data class Playlists(
         val account: AccountInfo,
         val guild: GuildSummary,
@@ -57,4 +72,5 @@ data class AppUiState(
     val screen: AppScreen = AppScreen.Loading,
     val busy: Boolean = false,
     val error: String? = null,
+    val notice: String? = null,
 )

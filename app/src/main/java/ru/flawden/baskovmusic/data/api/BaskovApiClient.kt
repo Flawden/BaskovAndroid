@@ -6,6 +6,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
+import ru.flawden.baskovmusic.model.FavoriteSnapshot
+import ru.flawden.baskovmusic.model.RemotePlayerSnapshot
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.LibrarySnapshot
 import ru.flawden.baskovmusic.model.LibrarySummary
@@ -75,6 +77,50 @@ class BaskovApiClient(
             "api/v1/library?guildId=${encodeQuery(guildId)}",
             accessToken = accessToken,
         ).toLibrary()
+
+    suspend fun favorites(accessToken: String, guildId: String): FavoriteSnapshot =
+        requestJson(
+            "GET",
+            "api/v1/favorites?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).toFavorites()
+
+    suspend fun addFavorite(
+        accessToken: String,
+        guildId: String,
+        track: TrackPreview,
+    ): FavoriteSnapshot = requestJson(
+        "POST",
+        "api/v1/favorites?guildId=${encodeQuery(guildId)}",
+        body = JSONObject()
+            .put("artist", track.artist.orEmpty().ifBlank { "Неизвестно" })
+            .put("title", requireNotNull(track.title) { "Track title is required" }),
+        accessToken = accessToken,
+    ).toFavorites()
+
+    suspend fun removeFavorite(
+        accessToken: String,
+        guildId: String,
+        oneBasedPosition: Int,
+    ): FavoriteSnapshot = requestJson(
+        "DELETE",
+        "api/v1/favorites/$oneBasedPosition?guildId=${encodeQuery(guildId)}",
+        accessToken = accessToken,
+    ).toFavorites()
+
+    suspend fun clearFavorites(accessToken: String, guildId: String): FavoriteSnapshot =
+        requestJson(
+            "DELETE",
+            "api/v1/favorites?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).toFavorites()
+
+    suspend fun player(accessToken: String, guildId: String): RemotePlayerSnapshot =
+        requestJson(
+            "GET",
+            "api/v1/player?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).toPlayer()
 
     suspend fun search(accessToken: String, guildId: String, query: String): List<TrackPreview> =
         requestJson(
@@ -270,6 +316,22 @@ class BaskovApiClient(
         recent = getJSONArray("recent").mapTracks(),
         favoriteTracks = getJSONArray("favoriteTracks").mapTracks(),
         historyTracks = getJSONArray("historyTracks").mapTracks(),
+    )
+
+    private fun JSONObject.toFavorites() = FavoriteSnapshot(
+        guildId = getString("guildId"),
+        userId = getString("userId"),
+        limit = optInt("limit", 100),
+        tracks = getJSONArray("tracks").mapTracks(),
+    )
+
+    private fun JSONObject.toPlayer() = RemotePlayerSnapshot(
+        guildId = getString("guildId"),
+        sessionActive = optBoolean("sessionActive", false),
+        playing = optBoolean("playing", false),
+        paused = optBoolean("paused", false),
+        queueSize = optInt("queueSize", 0),
+        current = optJSONObject("current")?.toTrack(),
     )
 
     private fun JSONObject.toPlaylistSummary() = SharedPlaylistSummary(

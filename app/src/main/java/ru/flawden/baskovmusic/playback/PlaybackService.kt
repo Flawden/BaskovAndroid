@@ -323,7 +323,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.13.0")
+        .setUserAgent("BaskovAndroid/0.14.0")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")

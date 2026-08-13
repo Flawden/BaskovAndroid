@@ -5,6 +5,9 @@ import ru.flawden.baskovmusic.data.auth.AuthSessionManager
 import ru.flawden.baskovmusic.data.auth.SessionStore
 import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
+import ru.flawden.baskovmusic.model.FavoriteSnapshot
+import ru.flawden.baskovmusic.model.RemotePlayerSnapshot
+import ru.flawden.baskovmusic.model.ServerHubItem
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.LibrarySnapshot
 import ru.flawden.baskovmusic.model.MixDetail
@@ -36,6 +39,28 @@ class BaskovRepository(
     suspend fun home(guildId: String): HomeSnapshot = authenticated { client, token -> client.home(token, guildId) }
     suspend fun library(guildId: String): LibrarySnapshot =
         authenticated { client, token -> client.library(token, guildId) }
+
+    suspend fun favorites(guildId: String): FavoriteSnapshot =
+        authenticated { client, token -> client.favorites(token, guildId) }
+
+    suspend fun addFavorite(guildId: String, track: TrackPreview): FavoriteSnapshot =
+        authenticated { client, token -> client.addFavorite(token, guildId, track) }
+
+    suspend fun removeFavorite(guildId: String, oneBasedPosition: Int): FavoriteSnapshot =
+        authenticated { client, token -> client.removeFavorite(token, guildId, oneBasedPosition) }
+
+    suspend fun clearFavorites(guildId: String): FavoriteSnapshot =
+        authenticated { client, token -> client.clearFavorites(token, guildId) }
+
+    suspend fun player(guildId: String): RemotePlayerSnapshot =
+        authenticated { client, token -> client.player(token, guildId) }
+
+    suspend fun serverHubs(): List<ServerHubItem> = guilds().map { guild ->
+        ServerHubItem(
+            guild = guild,
+            player = runCatching { player(guild.guildId) }.getOrNull(),
+        )
+    }
 
     suspend fun search(guildId: String, query: String): List<TrackPreview> =
         authenticated { client, token -> client.search(token, guildId, query) }

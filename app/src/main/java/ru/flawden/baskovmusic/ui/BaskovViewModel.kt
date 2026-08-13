@@ -77,6 +77,62 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         setScreen(current.copy(snapshot = snapshot))
     }
 
+    fun openFavorites() = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        val snapshot = repository.favorites(context.guild.guildId)
+        navigate(AppScreen.Favorites(context.account, context.guild, snapshot))
+    }
+
+    fun refreshFavorites() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
+        setScreen(current.copy(snapshot = repository.favorites(current.guild.guildId)))
+    }
+
+    fun searchFavoriteAdd(query: String) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
+        val normalized = query.trim()
+        require(normalized.isNotBlank()) { "Введите трек для добавления" }
+        val results = repository.search(current.guild.guildId, normalized)
+        setScreen(current.copy(addQuery = normalized, addResults = results, addSearched = true))
+    }
+
+    fun addFavorite(track: TrackPreview) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
+        val updated = repository.addFavorite(current.guild.guildId, track)
+        setScreen(current.copy(snapshot = updated))
+        setNotice("Добавлено в избранное")
+    }
+
+    fun removeFavorite(index: Int) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
+        val updated = repository.removeFavorite(current.guild.guildId, index + 1)
+        setScreen(current.copy(snapshot = updated))
+        setNotice("Удалено из избранного")
+    }
+
+    fun clearFavorites() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
+        val updated = repository.clearFavorites(current.guild.guildId)
+        setScreen(current.copy(snapshot = updated, addResults = emptyList(), addSearched = false))
+        setNotice("Избранное очищено")
+    }
+
+    fun playFavorites() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Favorites ?: return@launchBusy
+        require(current.snapshot.tracks.isNotEmpty()) { "Избранное пусто" }
+        playback.play(repository.playbackQueue(current.guild.guildId, current.snapshot.tracks), 0)
+    }
+
+    fun openServers() = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        navigate(AppScreen.Servers(context.account, context.guild, repository.serverHubs()))
+    }
+
+    fun refreshServers() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Servers ?: return@launchBusy
+        setScreen(current.copy(servers = repository.serverHubs()))
+    }
+
     fun openLocalMusic() = launchBusy {
         val context = currentContext() ?: return@launchBusy
         navigate(loadLocalMusicScreen(context.account, context.guild))
@@ -323,6 +379,15 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         playback.play(repository.playbackQueue(context.guild.guildId, queue), startIndex)
     }
 
+    fun addCurrentToFavorites() = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        val playbackState = playback.state.value
+        require(!playbackState.isLocal) { "Локальный файл пока нельзя добавить в общее избранное" }
+        val current = playbackState.current ?: return@launchBusy
+        repository.addFavorite(context.guild.guildId, current)
+        setNotice("Добавлено в избранное")
+    }
+
     fun togglePlayback() = playback.togglePlayPause()
     fun nextTrack() = playback.next()
     fun previousTrack() = playback.previous()
@@ -357,6 +422,10 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearError() {
         mutableState.value = mutableState.value.copy(error = null)
+    }
+
+    fun clearNotice() {
+        mutableState.value = mutableState.value.copy(notice = null)
     }
 
     private fun bootstrap() = viewModelScope.launch {
@@ -428,6 +497,8 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         is AppScreen.Library -> ScreenContext(screen.account, screen.guild)
         is AppScreen.LocalMusic -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Search -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Favorites -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Servers -> ScreenContext(screen.account, screen.currentGuild)
         is AppScreen.Playlists -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Playlist -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Mixes -> ScreenContext(screen.account, screen.guild)
@@ -449,12 +520,14 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
             ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
             is AppScreen.LocalMusic -> emptyList()
             is AppScreen.Search -> screen.remoteResults
+            is AppScreen.Favorites -> screen.snapshot.tracks
             is AppScreen.Playlist -> screen.detail.tracks
             is AppScreen.Mix -> screen.detail.seedPreview
             is AppScreen.Track -> backStack.peekLast()?.let { queueFromScreen(it, track) }.orEmpty()
             AppScreen.Loading,
             is AppScreen.Pairing,
             is AppScreen.GuildPicker,
+            is AppScreen.Servers,
             is AppScreen.Playlists,
             is AppScreen.Mixes,
             -> emptyList()
@@ -473,12 +546,14 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
         is AppScreen.LocalMusic -> emptyList()
         is AppScreen.Search -> screen.remoteResults
+        is AppScreen.Favorites -> screen.snapshot.tracks
         is AppScreen.Playlist -> screen.detail.tracks
         is AppScreen.Mix -> screen.detail.seedPreview
         is AppScreen.Track -> listOf(screen.track)
         AppScreen.Loading,
         is AppScreen.Pairing,
         is AppScreen.GuildPicker,
+        is AppScreen.Servers,
         is AppScreen.Playlists,
         is AppScreen.Mixes,
         -> emptyList()
@@ -499,6 +574,10 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun setScreen(screen: AppScreen) {
         mutableState.value = mutableState.value.copy(screen = screen, error = null)
+    }
+
+    private fun setNotice(message: String) {
+        mutableState.value = mutableState.value.copy(notice = message)
     }
 
     private fun setError(message: String) {

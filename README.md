@@ -1,5 +1,12 @@
 # Baskov Android
 
+## v0.14.0 — My Music & Servers
+- First-class shared Favorites surface backed by BaskovDiscordBot v1.37.
+- Search/add/remove/clear/play-all for the same favorites used by Discord `/favorites`.
+- One-tap add-to-favorites from remote Now Playing.
+- Servers hub with accessible guilds and read-only current playback/queue summaries.
+- Home is reorganized around Search, Favorites, Playlists, Servers, local music, history and recommendations.
+
 ## v0.12.0 — Search & Now Playing Navigation
 - Global `🔍 Найти и включить` surface with authenticated backend search plus selected-folder local search.
 - Remote search results play through the existing Baskov Product API stream; local results stay on Media3 `content://` playback.
