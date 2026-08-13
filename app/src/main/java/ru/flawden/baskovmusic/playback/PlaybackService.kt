@@ -20,6 +20,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.ListenableFuture
@@ -320,15 +321,15 @@ class PlaybackService : MediaSessionService() {
             }
             val item = session.player.currentMediaItem
                 ?: return com.google.common.util.concurrent.Futures.immediateFuture(
-                    SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE),
+                    SessionResult(SessionError.ERROR_BAD_VALUE),
                 )
             val stableKey = item.mediaId.takeIf { it.isNotBlank() && !it.startsWith("local:") }
                 ?: return com.google.common.util.concurrent.Futures.immediateFuture(
-                    SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED),
+                    SessionResult(SessionError.ERROR_NOT_SUPPORTED),
                 )
             return serviceScope.future(Dispatchers.IO) {
                 val guildId = repository.selectedGuildId()
-                    ?: return@future SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE)
+                    ?: return@future SessionResult(SessionError.ERROR_BAD_VALUE)
                 val currentlyFavorite = repository.favoriteStatus(guildId, stableKey)
                 if (currentlyFavorite) {
                     repository.removeFavoriteByStableKey(guildId, stableKey)
