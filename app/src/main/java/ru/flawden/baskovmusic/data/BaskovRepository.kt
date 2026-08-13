@@ -11,6 +11,8 @@ import ru.flawden.baskovmusic.model.MixDetail
 import ru.flawden.baskovmusic.model.MixesSnapshot
 import ru.flawden.baskovmusic.model.PlaybackQueueItem
 import ru.flawden.baskovmusic.model.PlaybackQueueSpec
+import ru.flawden.baskovmusic.model.SharedPlaylistDetail
+import ru.flawden.baskovmusic.model.SharedPlaylistSummary
 import ru.flawden.baskovmusic.model.TrackPreview
 
 class BaskovRepository(
@@ -37,6 +39,51 @@ class BaskovRepository(
 
     suspend fun search(guildId: String, query: String): List<TrackPreview> =
         authenticated { client, token -> client.search(token, guildId, query) }
+
+    suspend fun playlists(guildId: String): List<SharedPlaylistSummary> =
+        authenticated { client, token -> client.playlists(token, guildId) }
+
+    suspend fun playlist(guildId: String, name: String): SharedPlaylistDetail =
+        authenticated { client, token -> client.playlist(token, guildId, name) }
+
+    suspend fun createPlaylist(guildId: String, name: String): SharedPlaylistDetail =
+        authenticated { client, token -> client.createPlaylist(token, guildId, name) }
+
+    suspend fun addPlaylistTrack(
+        guildId: String,
+        playlistName: String,
+        track: TrackPreview,
+    ): SharedPlaylistDetail = authenticated { client, token ->
+        client.addPlaylistTrack(token, guildId, playlistName, track)
+    }
+
+    suspend fun removePlaylistTrack(
+        guildId: String,
+        playlistName: String,
+        oneBasedPosition: Int,
+    ): SharedPlaylistDetail = authenticated { client, token ->
+        client.removePlaylistTrack(token, guildId, playlistName, oneBasedPosition)
+    }
+
+    suspend fun movePlaylistTrack(
+        guildId: String,
+        playlistName: String,
+        fromOneBasedPosition: Int,
+        toOneBasedPosition: Int,
+    ): SharedPlaylistDetail = authenticated { client, token ->
+        client.movePlaylistTrack(token, guildId, playlistName, fromOneBasedPosition, toOneBasedPosition)
+    }
+
+    suspend fun renamePlaylist(
+        guildId: String,
+        playlistName: String,
+        newName: String,
+    ): SharedPlaylistDetail = authenticated { client, token ->
+        client.renamePlaylist(token, guildId, playlistName, newName)
+    }
+
+    suspend fun deletePlaylist(guildId: String, playlistName: String): SharedPlaylistDetail =
+        authenticated { client, token -> client.deletePlaylist(token, guildId, playlistName) }
 
     suspend fun mixes(guildId: String): MixesSnapshot =
         authenticated { client, token -> client.mixes(token, guildId) }

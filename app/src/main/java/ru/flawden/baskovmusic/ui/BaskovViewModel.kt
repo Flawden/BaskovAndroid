@@ -20,6 +20,7 @@ import ru.flawden.baskovmusic.model.AccountInfo
 import ru.flawden.baskovmusic.model.GuildSummary
 import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.MixCard
+import ru.flawden.baskovmusic.model.SharedPlaylistSummary
 import ru.flawden.baskovmusic.model.TrackPreview
 import ru.flawden.baskovmusic.playback.LocalPlaybackController
 import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
@@ -128,6 +129,104 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         val queue = current.localResults.ifEmpty { listOf(track) }
         val startIndex = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         playback.playLocal(queue, startIndex)
+    }
+
+    fun openPlaylists() = launchBusy {
+        val context = currentContext() ?: return@launchBusy
+        val playlists = repository.playlists(context.guild.guildId)
+        navigate(AppScreen.Playlists(context.account, context.guild, playlists))
+    }
+
+    fun refreshPlaylists() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlists ?: return@launchBusy
+        setScreen(current.copy(playlists = repository.playlists(current.guild.guildId)))
+    }
+
+    fun createPlaylist(name: String) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlists ?: return@launchBusy
+        val normalized = name.trim()
+        require(normalized.isNotBlank()) { "Введите название плейлиста" }
+        val detail = repository.createPlaylist(current.guild.guildId, normalized)
+        navigate(AppScreen.Playlist(current.account, current.guild, detail))
+    }
+
+    fun openPlaylist(playlist: SharedPlaylistSummary) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlists ?: return@launchBusy
+        val detail = repository.playlist(current.guild.guildId, playlist.name)
+        navigate(AppScreen.Playlist(current.account, current.guild, detail))
+    }
+
+    fun refreshPlaylist() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlist ?: return@launchBusy
+        val detail = repository.playlist(current.guild.guildId, current.detail.name)
+        setScreen(current.copy(detail = detail))
+    }
+
+    fun searchPlaylistAdd(query: String) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlist ?: return@launchBusy
+        val normalized = query.trim()
+        require(normalized.isNotBlank()) { "Введите трек для добавления" }
+        val results = repository.search(current.guild.guildId, normalized)
+        setScreen(current.copy(addQuery = normalized, addResults = results, addSearched = true))
+    }
+
+    fun addTrackToPlaylist(track: TrackPreview) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlist ?: return@launchBusy
+        require(current.detail.ownedByMe) { "Этот плейлист принадлежит другому пользователю" }
+        val detail = repository.addPlaylistTrack(current.guild.guildId, current.detail.name, track)
+        setScreen(current.copy(detail = detail))
+    }
+
+    fun removePlaylistTrack(index: Int) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlist ?: return@launchBusy
+        require(current.detail.ownedByMe) { "Этот плейлист доступен только для чтения" }
+        val detail = repository.removePlaylistTrack(
+            current.guild.guildId,
+            current.detail.name,
+            index + 1,
+        )
+        setScreen(current.copy(detail = detail))
+    }
+
+    fun movePlaylistTrack(index: Int, delta: Int) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlist ?: return@launchBusy
+        require(current.detail.ownedByMe) { "Этот плейлист доступен только для чтения" }
+        val target = index + delta
+        if (target !in current.detail.tracks.indices) return@launchBusy
+        val detail = repository.movePlaylistTrack(
+            current.guild.guildId,
+            current.detail.name,
+            index + 1,
+            target + 1,
+        )
+        setScreen(current.copy(detail = detail))
+    }
+
+    fun renamePlaylist(newName: String) = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlist ?: return@launchBusy
+        require(current.detail.ownedByMe) { "Этот плейлист доступен только для чтения" }
+        val normalized = newName.trim()
+        require(normalized.isNotBlank()) { "Введите новое название" }
+        val detail = repository.renamePlaylist(current.guild.guildId, current.detail.name, normalized)
+        setScreen(current.copy(detail = detail))
+    }
+
+    fun deletePlaylist() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlist ?: return@launchBusy
+        require(current.detail.ownedByMe) { "Этот плейлист доступен только для чтения" }
+        repository.deletePlaylist(current.guild.guildId, current.detail.name)
+        while (backStack.peekLast() is AppScreen.Playlist) backStack.removeLast()
+        setScreen(AppScreen.Playlists(
+            current.account,
+            current.guild,
+            repository.playlists(current.guild.guildId),
+        ))
+    }
+
+    fun playPlaylist() = launchBusy {
+        val current = mutableState.value.screen as? AppScreen.Playlist ?: return@launchBusy
+        require(current.detail.tracks.isNotEmpty()) { "Плейлист пуст" }
+        playback.play(repository.playbackQueue(current.guild.guildId, current.detail.tracks), 0)
     }
 
     fun refreshLocalMusic() = launchBusy {
@@ -329,6 +428,8 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         is AppScreen.Library -> ScreenContext(screen.account, screen.guild)
         is AppScreen.LocalMusic -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Search -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Playlists -> ScreenContext(screen.account, screen.guild)
+        is AppScreen.Playlist -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Mixes -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Mix -> ScreenContext(screen.account, screen.guild)
         is AppScreen.Track -> ScreenContext(screen.account, screen.guild)
@@ -348,11 +449,13 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
             ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
             is AppScreen.LocalMusic -> emptyList()
             is AppScreen.Search -> screen.remoteResults
+            is AppScreen.Playlist -> screen.detail.tracks
             is AppScreen.Mix -> screen.detail.seedPreview
             is AppScreen.Track -> backStack.peekLast()?.let { queueFromScreen(it, track) }.orEmpty()
             AppScreen.Loading,
             is AppScreen.Pairing,
             is AppScreen.GuildPicker,
+            is AppScreen.Playlists,
             is AppScreen.Mixes,
             -> emptyList()
         }
@@ -370,11 +473,13 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
         ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
         is AppScreen.LocalMusic -> emptyList()
         is AppScreen.Search -> screen.remoteResults
+        is AppScreen.Playlist -> screen.detail.tracks
         is AppScreen.Mix -> screen.detail.seedPreview
         is AppScreen.Track -> listOf(screen.track)
         AppScreen.Loading,
         is AppScreen.Pairing,
         is AppScreen.GuildPicker,
+        is AppScreen.Playlists,
         is AppScreen.Mixes,
         -> emptyList()
     }

@@ -13,6 +13,8 @@ import ru.flawden.baskovmusic.model.MixCard
 import ru.flawden.baskovmusic.model.MixDetail
 import ru.flawden.baskovmusic.model.MixesSnapshot
 import ru.flawden.baskovmusic.model.SessionTokens
+import ru.flawden.baskovmusic.model.SharedPlaylistDetail
+import ru.flawden.baskovmusic.model.SharedPlaylistSummary
 import ru.flawden.baskovmusic.model.TasteSummary
 import ru.flawden.baskovmusic.model.ThemeAffinity
 import ru.flawden.baskovmusic.model.TrackPreview
@@ -80,6 +82,90 @@ class BaskovApiClient(
             "api/v1/search?guildId=${encodeQuery(guildId)}&query=${encodeQuery(query)}&limit=5",
             accessToken = accessToken,
         ).getJSONArray("tracks").mapTracks()
+
+    suspend fun playlists(accessToken: String, guildId: String): List<SharedPlaylistSummary> =
+        requestJson(
+            "GET",
+            "api/v1/playlists?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).getJSONArray("playlists").mapPlaylists()
+
+    suspend fun playlist(accessToken: String, guildId: String, name: String): SharedPlaylistDetail =
+        requestJson(
+            "GET",
+            "api/v1/playlists/${encodePathSegment(name)}?guildId=${encodeQuery(guildId)}",
+            accessToken = accessToken,
+        ).toPlaylistDetail()
+
+    suspend fun createPlaylist(accessToken: String, guildId: String, name: String): SharedPlaylistDetail =
+        requestJson(
+            "POST",
+            "api/v1/playlists?guildId=${encodeQuery(guildId)}",
+            body = JSONObject().put("name", name.trim()),
+            accessToken = accessToken,
+        ).toPlaylistDetail()
+
+    suspend fun addPlaylistTrack(
+        accessToken: String,
+        guildId: String,
+        playlistName: String,
+        track: TrackPreview,
+    ): SharedPlaylistDetail = requestJson(
+        "POST",
+        "api/v1/playlists/${encodePathSegment(playlistName)}/tracks?guildId=${encodeQuery(guildId)}",
+        body = JSONObject()
+            .put("artist", track.artist.orEmpty().ifBlank { "Неизвестно" })
+            .put("title", requireNotNull(track.title) { "Track title is required" }),
+        accessToken = accessToken,
+    ).toPlaylistDetail()
+
+    suspend fun removePlaylistTrack(
+        accessToken: String,
+        guildId: String,
+        playlistName: String,
+        oneBasedPosition: Int,
+    ): SharedPlaylistDetail = requestJson(
+        "DELETE",
+        "api/v1/playlists/${encodePathSegment(playlistName)}/tracks/$oneBasedPosition?guildId=${encodeQuery(guildId)}",
+        accessToken = accessToken,
+    ).toPlaylistDetail()
+
+    suspend fun movePlaylistTrack(
+        accessToken: String,
+        guildId: String,
+        playlistName: String,
+        fromOneBasedPosition: Int,
+        toOneBasedPosition: Int,
+    ): SharedPlaylistDetail = requestJson(
+        "POST",
+        "api/v1/playlists/${encodePathSegment(playlistName)}/move?guildId=${encodeQuery(guildId)}",
+        body = JSONObject()
+            .put("from", fromOneBasedPosition)
+            .put("to", toOneBasedPosition),
+        accessToken = accessToken,
+    ).toPlaylistDetail()
+
+    suspend fun renamePlaylist(
+        accessToken: String,
+        guildId: String,
+        playlistName: String,
+        newName: String,
+    ): SharedPlaylistDetail = requestJson(
+        "POST",
+        "api/v1/playlists/${encodePathSegment(playlistName)}/rename?guildId=${encodeQuery(guildId)}",
+        body = JSONObject().put("newName", newName.trim()),
+        accessToken = accessToken,
+    ).toPlaylistDetail()
+
+    suspend fun deletePlaylist(
+        accessToken: String,
+        guildId: String,
+        playlistName: String,
+    ): SharedPlaylistDetail = requestJson(
+        "DELETE",
+        "api/v1/playlists/${encodePathSegment(playlistName)}?guildId=${encodeQuery(guildId)}",
+        accessToken = accessToken,
+    ).toPlaylistDetail()
 
     suspend fun mixes(accessToken: String, guildId: String): MixesSnapshot =
         requestJson(
@@ -186,6 +272,24 @@ class BaskovApiClient(
         historyTracks = getJSONArray("historyTracks").mapTracks(),
     )
 
+    private fun JSONObject.toPlaylistSummary() = SharedPlaylistSummary(
+        name = getString("name"),
+        ownerUserId = getString("ownerUserId"),
+        ownedByMe = optBoolean("ownedByMe", false),
+        trackCount = optInt("trackCount", 0),
+        createdAtEpochMillis = optLong("createdAtEpochMillis", 0L),
+    )
+
+    private fun JSONObject.toPlaylistDetail() = SharedPlaylistDetail(
+        guildId = getString("guildId"),
+        userId = getString("userId"),
+        name = getString("name"),
+        ownerUserId = getString("ownerUserId"),
+        ownedByMe = optBoolean("ownedByMe", false),
+        createdAtEpochMillis = optLong("createdAtEpochMillis", 0L),
+        tracks = getJSONArray("tracks").mapTracks(),
+    )
+
     private fun JSONObject.toMixes() = MixesSnapshot(
         guildId = getString("guildId"),
         userId = getString("userId"),
@@ -233,6 +337,10 @@ class BaskovApiClient(
 
     private fun JSONArray.mapTracks(): List<TrackPreview> = buildList {
         for (index in 0 until length()) add(getJSONObject(index).toTrack())
+    }
+
+    private fun JSONArray.mapPlaylists(): List<SharedPlaylistSummary> = buildList {
+        for (index in 0 until length()) add(getJSONObject(index).toPlaylistSummary())
     }
 
     private fun encodeQuery(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())

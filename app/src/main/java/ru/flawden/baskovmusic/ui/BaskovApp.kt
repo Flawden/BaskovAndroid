@@ -60,6 +60,7 @@ import ru.flawden.baskovmusic.R
 import ru.flawden.baskovmusic.model.HomeSnapshot
 import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.MixCard
+import ru.flawden.baskovmusic.model.SharedPlaylistSummary
 import ru.flawden.baskovmusic.model.TrackPreview
 import ru.flawden.baskovmusic.playback.LocalPlaybackUiState
 
@@ -101,6 +102,8 @@ fun BaskovApp(
         is AppScreen.Library,
         is AppScreen.LocalMusic,
         is AppScreen.Search,
+        is AppScreen.Playlists,
+        is AppScreen.Playlist,
         is AppScreen.Mixes,
         is AppScreen.Mix,
         is AppScreen.Track,
@@ -170,6 +173,7 @@ fun BaskovApp(
                         onOpenLibrary = viewModel::openLibrary,
                         onOpenLocalMusic = viewModel::openLocalMusic,
                         onOpenSearch = viewModel::openSearch,
+                        onOpenPlaylists = viewModel::openPlaylists,
                         onOpenMixes = viewModel::openMixes,
                         onOpenMix = viewModel::openMix,
                         onOpenTrack = viewModel::openTrack,
@@ -203,6 +207,27 @@ fun BaskovApp(
                         onSearch = viewModel::search,
                         onPlayRemote = viewModel::playSearchRemote,
                         onPlayLocal = viewModel::playSearchLocal,
+                        onBack = viewModel::goBack,
+                    )
+                    is AppScreen.Playlists -> PlaylistsScreen(
+                        screen = screen,
+                        busy = state.busy,
+                        onRefresh = viewModel::refreshPlaylists,
+                        onCreate = viewModel::createPlaylist,
+                        onOpen = viewModel::openPlaylist,
+                        onBack = viewModel::goBack,
+                    )
+                    is AppScreen.Playlist -> PlaylistScreen(
+                        screen = screen,
+                        busy = state.busy,
+                        onRefresh = viewModel::refreshPlaylist,
+                        onPlayAll = viewModel::playPlaylist,
+                        onSearchAdd = viewModel::searchPlaylistAdd,
+                        onAdd = viewModel::addTrackToPlaylist,
+                        onRemove = viewModel::removePlaylistTrack,
+                        onMove = viewModel::movePlaylistTrack,
+                        onRename = viewModel::renamePlaylist,
+                        onDelete = viewModel::deletePlaylist,
                         onBack = viewModel::goBack,
                     )
                     is AppScreen.Mixes -> MixesScreen(
@@ -310,6 +335,7 @@ private fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenLocalMusic: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenPlaylists: () -> Unit,
     onOpenMixes: () -> Unit,
     onOpenMix: (MixCard) -> Unit,
     onOpenTrack: (TrackPreview) -> Unit,
@@ -351,6 +377,14 @@ private fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("📱 Музыка на телефоне")
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onOpenPlaylists,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("🎵 Общие плейлисты")
             }
         }
         item { SectionTitle("Сегодня") }
@@ -706,6 +740,231 @@ private fun SearchScreen(
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+private fun PlaylistsScreen(
+    screen: AppScreen.Playlists,
+    busy: Boolean,
+    onRefresh: () -> Unit,
+    onCreate: (String) -> Unit,
+    onOpen: (SharedPlaylistSummary) -> Unit,
+    onBack: () -> Unit,
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { ScreenHeader("Общие плейлисты", screen.guild.name, busy, onBack) }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Новый плейлист", fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Название") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = { onCreate(name) },
+                        enabled = !busy && name.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("＋ Создать") }
+                }
+            }
+        }
+        item {
+            Text(
+                "Это те же плейлисты, которые видит Discord-бот на этом сервере.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+        if (screen.playlists.isEmpty()) {
+            item { EmptyCard("На этом сервере пока нет плейлистов.") }
+        } else {
+            items(screen.playlists, key = { it.name }) { playlist ->
+                Card(onClick = { onOpen(playlist) }, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(playlist.name, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${playlist.trackCount} треков • ${if (playlist.ownedByMe) "мой" else "чужой / read-only"}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Text("→")
+                    }
+                }
+            }
+        }
+        item { BottomActions(busy, onRefresh, onBack) }
+    }
+}
+
+@Composable
+private fun PlaylistScreen(
+    screen: AppScreen.Playlist,
+    busy: Boolean,
+    onRefresh: () -> Unit,
+    onPlayAll: () -> Unit,
+    onSearchAdd: (String) -> Unit,
+    onAdd: (TrackPreview) -> Unit,
+    onRemove: (Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit,
+    onBack: () -> Unit,
+) {
+    var addQuery by rememberSaveable(screen.detail.name) { mutableStateOf(screen.addQuery) }
+    var rename by rememberSaveable(screen.detail.name) { mutableStateOf(screen.detail.name) }
+    var deleteArmed by rememberSaveable(screen.detail.name) { mutableStateOf(false) }
+    val editable = screen.detail.ownedByMe
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { ScreenHeader(screen.detail.name, screen.guild.name, busy, onBack) }
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (editable) "Твой общий плейлист" else "Плейлист другого пользователя — только чтение",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text("Треков: ${screen.detail.tracks.size}")
+                    Button(
+                        onClick = onPlayAll,
+                        enabled = !busy && screen.detail.tracks.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("▶ Играть плейлист на телефоне") }
+                }
+            }
+        }
+        if (editable) {
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Управление", fontWeight = FontWeight.SemiBold)
+                        OutlinedTextField(
+                            value = rename,
+                            onValueChange = { rename = it },
+                            label = { Text("Название") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { onRename(rename) },
+                                enabled = !busy && rename.isNotBlank() && rename.trim() != screen.detail.name,
+                                modifier = Modifier.weight(1f),
+                            ) { Text("Переименовать") }
+                            OutlinedButton(
+                                onClick = {
+                                    if (deleteArmed) onDelete() else deleteArmed = true
+                                },
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                            ) { Text(if (deleteArmed) "Точно удалить?" else "Удалить") }
+                        }
+                    }
+                }
+            }
+        }
+
+        item { SectionTitle("Треки") }
+        if (screen.detail.tracks.isEmpty()) {
+            item { EmptyCard("Плейлист пока пуст.") }
+        } else {
+            itemsIndexed(screen.detail.tracks) { index, track ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${index + 1}. ${track.title ?: "Unknown track"}", fontWeight = FontWeight.SemiBold)
+                        Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
+                        if (editable) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = { onMove(index, -1) },
+                                    enabled = !busy && index > 0,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("↑") }
+                                OutlinedButton(
+                                    onClick = { onMove(index, 1) },
+                                    enabled = !busy && index < screen.detail.tracks.lastIndex,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("↓") }
+                                OutlinedButton(
+                                    onClick = { onRemove(index) },
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("🗑") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (editable) {
+            item { SectionTitle("Добавить из Baskov") }
+            item {
+                Text(
+                    "Пока в общий плейлист можно сохранять серверные треки. Локальные content:// файлы станут общими после будущего Phone → Discord transport.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = addQuery,
+                    onValueChange = { addQuery = it },
+                    label = { Text("Найти трек") },
+                    placeholder = { Text("Green Day Holiday") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                Button(
+                    onClick = { onSearchAdd(addQuery) },
+                    enabled = !busy && addQuery.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("🔍 Найти для плейлиста") }
+            }
+            if (screen.addSearched) {
+                if (screen.addResults.isEmpty()) {
+                    item { EmptyCard("Ничего не найдено.") }
+                } else {
+                    items(screen.addResults) { track ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(track.title ?: "Unknown track", fontWeight = FontWeight.SemiBold)
+                                    Text(track.artist ?: "Unknown artist", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Button(
+                                    onClick = { onAdd(track) },
+                                    enabled = !busy && !track.title.isNullOrBlank(),
+                                ) { Text("＋") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item { BottomActions(busy, onRefresh, onBack) }
     }
 }
 

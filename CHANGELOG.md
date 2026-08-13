@@ -1,4 +1,13 @@
 # Changelog
+## 0.13.0 — Shared Playlists
+- Added server-backed shared playlist list/detail/create/edit/delete surfaces.
+- Android and Discord now use the same guild playlist persistence through BaskovDiscordBot v1.36 Product API.
+- Added remote track search inside a playlist and server-side durable track capture.
+- Added playlist playback on the phone, reordering and track removal.
+- Playlists owned by another Discord user are visible read-only; device pairing never grants administrator playlist rights.
+- Local phone files remain intentionally excluded from shared playlists until Phone → Discord transport exists.
+- Updated playback HTTP user agent to `BaskovAndroid/0.13.0`.
+- Bumped Android app version to `0.13.0` / versionCode `14`.
 ## 0.12.0 — Search & Now Playing Navigation
 - Added authenticated global Baskov search backed by Product API `/api/v1/search`.
 - Added one Search surface that shows remote Baskov candidates and matching tracks from the selected local folders.

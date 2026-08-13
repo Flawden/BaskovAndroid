@@ -8,6 +8,8 @@ import ru.flawden.baskovmusic.model.LocalMusicFolder
 import ru.flawden.baskovmusic.model.LocalTrack
 import ru.flawden.baskovmusic.model.MixDetail
 import ru.flawden.baskovmusic.model.MixesSnapshot
+import ru.flawden.baskovmusic.model.SharedPlaylistDetail
+import ru.flawden.baskovmusic.model.SharedPlaylistSummary
 import ru.flawden.baskovmusic.model.TrackPreview
 
 sealed interface AppScreen {
@@ -32,6 +34,19 @@ sealed interface AppScreen {
         val remoteResults: List<TrackPreview> = emptyList(),
         val localResults: List<LocalTrack> = emptyList(),
         val searched: Boolean = false,
+    ) : AppScreen
+    data class Playlists(
+        val account: AccountInfo,
+        val guild: GuildSummary,
+        val playlists: List<SharedPlaylistSummary>,
+    ) : AppScreen
+    data class Playlist(
+        val account: AccountInfo,
+        val guild: GuildSummary,
+        val detail: SharedPlaylistDetail,
+        val addQuery: String = "",
+        val addResults: List<TrackPreview> = emptyList(),
+        val addSearched: Boolean = false,
     ) : AppScreen
     data class Mixes(val account: AccountInfo, val guild: GuildSummary, val snapshot: MixesSnapshot) : AppScreen
     data class Mix(val account: AccountInfo, val guild: GuildSummary, val detail: MixDetail) : AppScreen

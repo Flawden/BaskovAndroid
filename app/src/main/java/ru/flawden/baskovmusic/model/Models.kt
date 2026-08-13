@@ -121,6 +121,24 @@ data class HomeSnapshot(
     val taste: TasteSummary,
 )
 
+data class SharedPlaylistSummary(
+    val name: String,
+    val ownerUserId: String,
+    val ownedByMe: Boolean,
+    val trackCount: Int,
+    val createdAtEpochMillis: Long,
+)
+
+data class SharedPlaylistDetail(
+    val guildId: String,
+    val userId: String,
+    val name: String,
+    val ownerUserId: String,
+    val ownedByMe: Boolean,
+    val createdAtEpochMillis: Long,
+    val tracks: List<TrackPreview>,
+)
+
 data class PlaybackQueueItem(
     val track: TrackPreview,
     val streamUrl: String,

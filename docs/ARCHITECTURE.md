@@ -49,3 +49,8 @@ There is still exactly one playback owner. Remote Baskov streams keep Product AP
 `LocalMusicRepository` reads the MediaStore folder path alongside track metadata. `LocalMusicSettingsStore` persists an optional allow-list of folder paths; an unset filter means all MediaStore music remains visible. The filter only changes the Android library/queue and never mutates or moves files.
 
 Shuffle and repeat are Media3 player properties owned by the same `MediaSessionService`. `PlaybackModeStore` persists them independently of the resumable queue snapshot so they survive app/service recreation. Native Media3 previous/next navigation is used so shuffle and repeat semantics remain authoritative in the player.
+
+
+## Shared playlists (v0.13)
+
+`BaskovApiClient` talks to the owner-scoped Product API playlist surface. The backend reuses the existing Discord `MusicLibraryRepository`; Android does not maintain a second playlist database. Playlist tracks are provider-neutral in the mobile model and are resolved/persisted server-side. Phone-local `content://` tracks remain outside shared playlists until the future upload/handoff transport.
