@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import ru.flawden.baskovmusic.model.AccountInfo
+import ru.flawden.baskovmusic.model.AutoplaySnapshot
 import ru.flawden.baskovmusic.model.GuildSummary
 import ru.flawden.baskovmusic.model.FavoriteSnapshot
 import ru.flawden.baskovmusic.model.RemotePlayerSnapshot
@@ -196,6 +197,18 @@ class BaskovApiClient(
             "api/v1/search?guildId=${encodeQuery(guildId)}&query=${encodeQuery(query)}&limit=5",
             accessToken = accessToken,
         ).getJSONArray("tracks").mapTracks()
+    suspend fun autoplayNext(
+        accessToken: String,
+        guildId: String,
+        artist: String,
+        title: String,
+    ): AutoplaySnapshot = requestJson(
+        "GET",
+        "api/v1/autoplay/next?guildId=${encodeQuery(guildId)}" +
+            "&artist=${encodeQuery(artist)}" +
+            "&title=${encodeQuery(title)}",
+        accessToken = accessToken,
+    ).toAutoplay()
 
     suspend fun playlists(accessToken: String, guildId: String): List<SharedPlaylistSummary> =
         requestJson(
@@ -406,6 +419,17 @@ class BaskovApiClient(
         paused = optBoolean("paused", false),
         queueSize = optInt("queueSize", 0),
         current = optJSONObject("current")?.toTrack(),
+    )
+    private fun JSONObject.toAutoplay() = AutoplaySnapshot(
+        guildId = getString("guildId"),
+        userId = getString("userId"),
+        seed = getJSONObject("seed").toTrack(),
+        next = optJSONObject("next")?.toTrack(),
+        available = optBoolean("available", false),
+        fallback = optBoolean("fallback", false),
+        provider = optString("provider", "none"),
+        similarity = optDouble("similarity", 0.0).coerceIn(0.0, 1.0),
+        reason = optString("reason", "No continuation candidate"),
     )
 
     private fun JSONObject.toPlaylistSummary() = SharedPlaylistSummary(

@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -38,6 +39,7 @@ import ru.flawden.baskovmusic.data.BaskovRepository
 import ru.flawden.baskovmusic.data.TasteSignalReporter
 import ru.flawden.baskovmusic.data.auth.AuthSessionManager
 import ru.flawden.baskovmusic.data.auth.SessionStore
+import ru.flawden.baskovmusic.model.PlaybackQueueItem
 import ru.flawden.baskovmusic.model.TasteSignal
 import ru.flawden.baskovmusic.model.TasteSignalSource
 import ru.flawden.baskovmusic.model.TasteSignalType
@@ -62,6 +64,7 @@ class PlaybackService : MediaSessionService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var snapshotJob: Job? = null
     private var authMaintenanceJob: Job? = null
+    private var autoplayContinuationJob: Job? = null
 
     @Volatile
     private var hasPlaybackQueue = false
@@ -121,15 +124,25 @@ class PlaybackService : MediaSessionService() {
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             sampleTasteProgress()
-            if (playbackState == Player.STATE_ENDED && activeTasteTrack != null) {
+            if (playbackState == Player.STATE_ENDED) {
                 val player = mediaSession?.player
-                val outcome = if (player?.repeatMode == Player.REPEAT_MODE_OFF) {
-                    TasteSignalType.COMPLETED
-                } else {
-                    TasteSignalType.REPLAY
+                val seedItem = player?.currentMediaItem
+                val seedUri = seedItem?.localConfiguration?.uri?.toString()
+                val repeatModeOff = player?.repeatMode == Player.REPEAT_MODE_OFF
+                val shouldContinue = SmartAutoplayPolicy.shouldContinue(
+                    remote = PlaybackStreamUrl.isRemoteHttp(seedUri),
+                    repeatModeOff = repeatModeOff,
+                    hasSeed = seedItem != null,
+                )
+                if (activeTasteTrack != null) {
+                    finishTasteTrack(
+                        if (repeatModeOff) TasteSignalType.COMPLETED else TasteSignalType.REPLAY,
+                    )
                 }
-                finishTasteTrack(outcome)
                 recoverRepeatAtEnd()
+                if (shouldContinue && player != null && seedItem != null) {
+                    requestSmartAutoplay(player, seedItem)
+                }
             }
             persistCurrentState()
         }
@@ -163,6 +176,52 @@ class PlaybackService : MediaSessionService() {
         }
         if (targetIndex !in 0 until player.mediaItemCount) return
         restartQueueFromZero(player, targetIndex)
+    }
+
+    private fun requestSmartAutoplay(player: Player, seedItem: MediaItem) {
+        val seedArtist = seedItem.mediaMetadata.artist?.toString().orEmpty().trim()
+        val seedTitle = seedItem.mediaMetadata.title?.toString().orEmpty().trim()
+        if (seedArtist.isBlank() || seedTitle.isBlank()) return
+
+        val seedStableKey = seedItem.mediaId.takeIf(String::isNotBlank)
+        autoplayContinuationJob?.cancel()
+        autoplayContinuationJob = serviceScope.launch(Dispatchers.IO) {
+            runCatching {
+                val guildId = repository.selectedGuildId() ?: return@runCatching null
+                val decision = repository.autoplayNext(guildId, seedArtist, seedTitle)
+                val next = decision.next ?: return@runCatching null
+                if (!decision.available || SmartAutoplayPolicy.sameLogicalTrack(
+                        seedStableKey = seedStableKey,
+                        seedArtist = seedArtist,
+                        seedTitle = seedTitle,
+                        next = next,
+                    )
+                ) {
+                    return@runCatching null
+                }
+                repository.playbackQueue(guildId, listOf(next))
+            }.onSuccess { spec ->
+                if (spec == null) return@onSuccess
+                launch(Dispatchers.Main.immediate) {
+                    val livePlayer = mediaSession?.player ?: return@launch
+                    val liveItem = livePlayer.currentMediaItem ?: return@launch
+                    val liveUri = liveItem.localConfiguration?.uri?.toString()
+                    val stillAtSeed = livePlayer.playbackState == Player.STATE_ENDED &&
+                        livePlayer.repeatMode == Player.REPEAT_MODE_OFF &&
+                        liveItem.mediaId == seedItem.mediaId &&
+                        PlaybackStreamUrl.isRemoteHttp(liveUri)
+                    if (!stillAtSeed) return@launch
+
+                    val nextItem = spec.items.singleOrNull() ?: return@launch
+                    PlaybackAuthBridge.update(spec.bearerToken)
+                    livePlayer.setMediaItem(nextItem.toRemoteMediaItem())
+                    livePlayer.prepare()
+                    livePlayer.play()
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Smart Autoplay continuation failed", error)
+            }
+        }
     }
 
     private fun restartQueueFromZero(player: Player, targetIndex: Int) {
@@ -273,6 +332,7 @@ class PlaybackService : MediaSessionService() {
         persistCurrentState()
         snapshotJob?.cancel()
         authMaintenanceJob?.cancel()
+        autoplayContinuationJob?.cancel()
         activeTasteTrack = null
         mediaSession?.run {
             player.removeListener(persistenceListener)
@@ -486,6 +546,7 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val ACTION_TOGGLE_FAVORITE = "ru.flawden.baskovmusic.action.TOGGLE_FAVORITE"
+        private const val TAG = "BaskovPlayback"
         private const val SNAPSHOT_INTERVAL_MILLIS = 5_000L
         const val AUTH_CHECK_INTERVAL_MILLIS = 60_000L
         const val MIN_PLAYBACK_ACCESS_VALIDITY_MILLIS = 5 * 60_000L
@@ -498,6 +559,17 @@ class PlaybackService : MediaSessionService() {
  * Keeps the short-lived access token in process memory only. Durable access/refresh credentials
  * remain encrypted by SessionStore/Android Keystore and can be rehydrated after process death.
  */
+private fun PlaybackQueueItem.toRemoteMediaItem(): MediaItem = MediaItem.Builder()
+    .setUri(streamUrl)
+    .setMediaId(track.stableKey ?: "baskov-autoplay")
+    .setMediaMetadata(
+        androidx.media3.common.MediaMetadata.Builder()
+            .setTitle(track.title ?: "Unknown track")
+            .setArtist(track.artist ?: "Unknown artist")
+            .build(),
+    )
+    .build()
+
 private data class ActiveTasteTrack(
     val stableKey: String,
     val source: TasteSignalSource,
@@ -584,7 +656,7 @@ private class BaskovAuthenticatedDataSourceFactory : DataSource.Factory {
 @OptIn(UnstableApi::class)
 private class BaskovAuthenticatedDataSource : DataSource {
     private val source = DefaultHttpDataSource.Factory()
-        .setUserAgent("BaskovAndroid/0.16.0")
+        .setUserAgent("BaskovAndroid/0.17.0")
         .createDataSource()
         .also { http ->
             http.setRequestProperty("Accept", "audio/ogg")

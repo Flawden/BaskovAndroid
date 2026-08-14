@@ -4,6 +4,7 @@ import ru.flawden.baskovmusic.data.api.BaskovApiClient
 import ru.flawden.baskovmusic.data.auth.AuthSessionManager
 import ru.flawden.baskovmusic.data.auth.SessionStore
 import ru.flawden.baskovmusic.model.AccountInfo
+import ru.flawden.baskovmusic.model.AutoplaySnapshot
 import ru.flawden.baskovmusic.model.GuildSummary
 import ru.flawden.baskovmusic.model.FavoriteSnapshot
 import ru.flawden.baskovmusic.model.RemotePlayerSnapshot
@@ -84,6 +85,8 @@ class BaskovRepository(
 
     suspend fun search(guildId: String, query: String): List<TrackPreview> =
         authenticated { client, token -> client.search(token, guildId, query) }
+    suspend fun autoplayNext(guildId: String, artist: String, title: String): AutoplaySnapshot =
+        authenticated { client, token -> client.autoplayNext(token, guildId, artist, title) }
 
     suspend fun playlists(guildId: String): List<SharedPlaylistSummary> =
         authenticated { client, token -> client.playlists(token, guildId) }

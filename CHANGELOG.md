@@ -1,3 +1,14 @@
+## 0.17.0 — Smart Autoplay & Search Continuation
+- Added authenticated Smart Autoplay consumption through BaskovDiscordBot v1.39 `GET /api/v1/autoplay/next`.
+- When a remote queue naturally exhausts with Repeat OFF, the MediaSessionService asks the backend for exactly one next logical track and continues through the existing authenticated playback stream.
+- Smart Autoplay runs in the system-owned playback service rather than the screen/ViewModel, so background playback does not depend on the UI remaining open.
+- Remote search selection now plays only the track the user selected; the other search candidates are no longer silently converted into a queue.
+- Playlist/favorites queues still play in their explicit order; Smart Autoplay starts only after the existing remote queue is exhausted.
+- Local `content://` playback never triggers remote continuation, and Repeat ONE/ALL retains its existing behavior instead of invoking Smart Autoplay.
+- Added Android-side logical self-loop protection in addition to the backend guard, plus pure JVM policy regression tests.
+- Updated playback HTTP user agent to `BaskovAndroid/0.17.0`.
+- Bumped Android app version to `0.17.0` / versionCode `20`.
+
 ## 0.16.0 — Search v2: Fuzzy & Ranked Local Search
 - Replaced local-library substring filtering with ranked typo-tolerant search across title, artist and album.
 - Fixed the dedicated `Музыка на телефоне` screen to use the same Search v2 ranker as the combined Search screen; real-device smoke now covers typos such as `ветир` → `Ветер`.

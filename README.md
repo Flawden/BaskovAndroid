@@ -1,4 +1,9 @@
 # Baskov Android
+## v0.17.0 — Smart Autoplay & Search Continuation
+- A selected remote search result is now one explicit track, not an implicit queue of all search candidates.
+- When the current remote queue ends naturally with Repeat OFF, the background MediaSessionService requests one personalized continuation candidate from BaskovDiscordBot v1.39 and starts it through the existing playback stream.
+- Explicit playlists/favorites finish first; local phone files and Repeat modes do not invoke remote Smart Autoplay.
+
 ## v0.16.0 — Search v2: Fuzzy & Ranked Local Search
 - Local search is typo-tolerant and relevance-ranked instead of raw substring filtering.
 - Title has the strongest ranking weight, followed by artist and album; exact/prefix matches remain above fuzzy candidates.

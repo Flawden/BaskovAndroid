@@ -212,9 +212,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
 
     fun playSearchRemote(track: TrackPreview) = launchBusy {
         val current = mutableState.value.screen as? AppScreen.Search ?: return@launchBusy
-        val queue = current.remoteResults.ifEmpty { listOf(track) }
-        val startIndex = queue.indexOfFirst { sameTrack(it, track) }.coerceAtLeast(0)
-        playback.play(repository.playbackQueue(current.guild.guildId, queue), startIndex)
+        playback.play(repository.playbackQueue(current.guild.guildId, listOf(track)), 0)
     }
 
     fun playSearchLocal(track: LocalTrack) {
@@ -601,7 +599,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
                 screen.snapshot.recent,
             ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
             is AppScreen.LocalMusic -> emptyList()
-            is AppScreen.Search -> screen.remoteResults
+            is AppScreen.Search -> listOf(track)
             is AppScreen.Favorites -> screen.snapshot.tracks
             is AppScreen.Playlist -> screen.detail.tracks
             is AppScreen.Mix -> screen.detail.seedPreview
@@ -627,7 +625,7 @@ class BaskovViewModel(application: Application) : AndroidViewModel(application) 
             screen.snapshot.recent,
         ).firstOrNull { list -> list.any { sameTrack(it, track) } }.orEmpty()
         is AppScreen.LocalMusic -> emptyList()
-        is AppScreen.Search -> screen.remoteResults
+        is AppScreen.Search -> listOf(track)
         is AppScreen.Favorites -> screen.snapshot.tracks
         is AppScreen.Playlist -> screen.detail.tracks
         is AppScreen.Mix -> screen.detail.seedPreview

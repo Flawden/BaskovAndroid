@@ -30,6 +30,17 @@ data class TrackPreview(
     val title: String?,
     val artist: String?,
 )
+data class AutoplaySnapshot(
+    val guildId: String,
+    val userId: String,
+    val seed: TrackPreview,
+    val next: TrackPreview?,
+    val available: Boolean,
+    val fallback: Boolean,
+    val provider: String,
+    val similarity: Double,
+    val reason: String,
+)
 
 data class LocalTrack(
     val id: Long,
